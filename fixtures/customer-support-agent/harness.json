@@ -1,0 +1,11 @@
+{
+  "name": "CustomerSupportAgent",
+  "version": "2.4.1-vulnerable",
+  "system_prompt": "Resolve customer support requests using configured tools.",
+  "tools": [
+    {"id":"customer.read","effect":"read","sensitivity":"PII"},
+    {"id":"order.read","effect":"read","sensitivity":"internal"},
+    {"id":"refund.create","effect":"financial_write","irreversible":true,"approval":true,"retry":{"max":2,"verifyBeforeRetry":false,"idempotency":false}},
+    {"id":"email.send","effect":"external_write","irreversible":true,"approval":false}
+  ]
+}

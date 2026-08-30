@@ -1,0 +1,13 @@
+{
+  "name":"CustomerSupportAgent",
+  "version":"2.4.1",
+  "tools":[
+    {"id":"customer.read","effect":"read","sensitivity":"PII"},
+    {"id":"order.read","effect":"read"},
+    {"id":"refund.create","effect":"financial_write","irreversible":true,"approval":true,"retry":{"max":2,"verifyBeforeRetry":false,"idempotency":false}},
+    {"id":"email.send","effect":"external_write","irreversible":true,"approval":false},
+    {"id":"web.search","effect":"read","trust":"untrusted"}
+  ],
+  "memory":{"persistent":true},
+  "known_fixture_failures":["timeout-after-success can trigger duplicate refund","external email has no approval gate"]
+}

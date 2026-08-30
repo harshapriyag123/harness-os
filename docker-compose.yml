@@ -1,0 +1,29 @@
+services:
+  api:
+    build: ./backend
+    ports: ["8080:8080"]
+    environment:
+      HARNESS_OS_MODE: demo
+      HARNESS_OS_DB: /data/harness_os.db
+      TRUEFORGE_BASE_URL: http://host.docker.internal:8790
+      HARNESS_CHAOS_MCP_URL: http://mcp-chaos:8940/mcp
+    volumes: ["harness-data:/data"]
+  mcp-chaos:
+    image: node:22-alpine
+    working_dir: /app
+    volumes: ["./mcp-chaos:/app"]
+    command: sh -c "npm install && npm start"
+    environment:
+      FIXTURE_BASE_URL: http://customer-fixture:8950
+    depends_on: [customer-fixture]
+    ports: ["8940:8940"]
+  customer-fixture:
+    build: ./backend
+    command: uvicorn app.fixture_service:app --host 0.0.0.0 --port 8950
+    environment:
+      FIXTURE_DB: /data/customer_fixture.db
+    volumes: ["fixture-data:/data"]
+    ports: ["8950:8950"]
+volumes:
+  harness-data:
+  fixture-data:
