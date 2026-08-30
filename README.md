@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Harness OS
 
 **A safety verification control plane for AI agent harnesses.**
@@ -290,3 +291,7 @@ Add only real reviewed pull-request links. No Qodo review was executed during th
 ## License
 
 MIT
+=======
+# harness-os
+Autonomous Pre-Deployment Safety Verification for AI Agents
+>>>>>>> origin/main
