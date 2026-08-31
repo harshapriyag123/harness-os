@@ -1,4 +1,4 @@
-import asyncio,json
+import asyncio,json,os
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -6,8 +6,14 @@ from . import engine,store,trueforge_runtime,verification_artifacts
 from .integrations.trueforge import TrueForgeClient,TrueForgeError
 from .models import AgentCreate,CampaignCreate,Decision,InvariantUpdate
 
+
+def _cors_origins():
+ configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
+ return list(dict.fromkeys(['http://localhost:5173',*configured]))
+
+
 app=FastAPI(title='Harness OS API',version='1.2.0')
-app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173'],allow_methods=['*'],allow_headers=['*'])
+app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
  item=store.get(kind,item_id)
