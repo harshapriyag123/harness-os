@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from typing import Any
 
@@ -9,10 +10,15 @@ from .integrations.trueforge import TrueForgeClient, TrueForgeError
 ACTIVE_STATUSES = ("WAITING_APPROVAL", "RUNNING", "PLANNING", "PAUSED")
 
 
-def _pick_campaign(campaign_id: str | None = None) -> dict[str, Any] | None:
+def _pick_campaign(campaign_id: str | None = None, agent_id: str | None = None) -> dict[str, Any] | None:
     campaigns = store.list_records("campaigns")
     if campaign_id:
-        return next((c for c in campaigns if c.get("id") == campaign_id), None)
+        found = next((c for c in campaigns if c.get("id") == campaign_id), None)
+        if found and agent_id and found.get("agent_id") != agent_id:
+            return None
+        return found
+    if agent_id:
+        campaigns = [c for c in campaigns if c.get("agent_id") == agent_id]
     for status in ACTIVE_STATUSES:
         found = next((c for c in campaigns if c.get("status") == status), None)
         if found:
@@ -20,16 +26,17 @@ def _pick_campaign(campaign_id: str | None = None) -> dict[str, Any] | None:
     return campaigns[0] if campaigns else None
 
 
-def snapshot(campaign_id: str | None = None, refresh_qodo: bool = False) -> dict[str, Any]:
-    campaign = _pick_campaign(campaign_id)
+def snapshot(campaign_id: str | None = None, refresh_qodo: bool = False, agent_id: str | None = None) -> dict[str, Any]:
+    campaign = _pick_campaign(campaign_id, agent_id)
     if not campaign:
+        target = store.get("agents", agent_id) if agent_id else None
         return {
             "campaign": None,
-            "target": None,
+            "target": target,
             "certification": None,
             "events": [],
             "approval": None,
-            "selection_reason": "NO_CAMPAIGN",
+            "selection_reason": "NO_CAMPAIGN_FOR_TARGET" if agent_id else "NO_CAMPAIGN",
         }
 
     cid = campaign["id"]
@@ -41,7 +48,7 @@ def snapshot(campaign_id: str | None = None, refresh_qodo: bool = False) -> dict
         certification = {
             "campaign_id": cid,
             "stage": campaign.get("current_stage"),
-            "next_gate": "repository_inspection",
+            "next_gate": "repository_inspection" if campaign.get("status") not in {"COMPLETED","ERROR","CANCELLED"} else "complete",
             "generic": True,
             "gates": {},
             "qodo_blocks_replay": False,
@@ -69,15 +76,41 @@ def snapshot(campaign_id: str | None = None, refresh_qodo: bool = False) -> dict
     }
 
 
+def _positive_timeout(env_name: str, default: float, minimum: float, maximum: float) -> tuple[float, str | None]:
+    raw = os.getenv(env_name)
+    if raw is None or raw.strip() == "":
+        return default, None
+    try:
+        value = float(raw)
+        if not math.isfinite(value) or value < minimum or value > maximum:
+            raise ValueError
+        return value, None
+    except (TypeError, ValueError):
+        return default, f"Invalid {env_name}={raw!r}; using {default:g}s."
+
+
 def trueforge_status() -> dict[str, Any]:
-    configured = TrueForgeClient.from_env()
-    probe_timeout = float(os.getenv("TRUEFORGE_PROBE_TIMEOUT_SECONDS", "4"))
-    probe = TrueForgeClient(configured.base_url, configured.token, min(configured.timeout, probe_timeout))
+    try:
+        configured = TrueForgeClient.from_env()
+    except (TypeError, ValueError) as exc:
+        return {
+            "base_url": os.getenv("TRUEFORGE_BASE_URL", "http://127.0.0.1:8790").rstrip("/"),
+            "agent_name": os.getenv("TRUEFORGE_AGENT_NAME", "harness-os"),
+            "status": "CONFIG_ERROR",
+            "retryable": True,
+            "detail": f"Invalid TrueForge client configuration: {exc}",
+            "diagnosis": "Fix the server-side TrueForge timeout/base configuration, then retry. Secrets are not returned to the browser.",
+            "capabilities": None,
+        }
+    probe_timeout, warning = _positive_timeout("TRUEFORGE_PROBE_TIMEOUT_SECONDS", 4.0, 0.25, 30.0)
+    effective_timeout = min(configured.timeout, probe_timeout) if configured.timeout > 0 else probe_timeout
+    probe = TrueForgeClient(configured.base_url, configured.token, effective_timeout)
     base = {
         "base_url": configured.base_url,
         "agent_name": os.getenv("TRUEFORGE_AGENT_NAME", "harness-os"),
         "request_timeout_seconds": configured.timeout,
         "probe_timeout_seconds": probe.timeout,
+        "configuration_warning": warning,
     }
     try:
         capabilities = probe.capabilities()
