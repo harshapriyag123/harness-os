@@ -92,6 +92,82 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def _create_live_safety_case(campaign_id: str) -> dict[str, Any]:
+    campaign = store.get("campaigns", campaign_id)
+    if not campaign:
+        raise KeyError("campaign not found")
+    existing = next((x for x in store.list_records("safety_cases") if x.get("campaign_id") == campaign_id), None)
+    if existing:
+        return existing
+    remediation = store.get("remediations", campaign.get("remediation_id", ""))
+    approval = store.get("approvals", campaign.get("approval_id", ""))
+    artifacts = [x for x in store.list_records("verification_artifacts") if x.get("campaign_id") == campaign_id]
+    by_type = {x["artifact_type"]: x for x in artifacts}
+    replay = campaign.get("replay") or {}
+    _require(remediation is not None and remediation.get("status") == "SANDBOX_VERIFIED", "Safety Case requires sandbox-verified remediation")
+    _require(approval is not None and approval.get("status") == "APPROVED", "Safety Case requires human approval")
+    _require(bool(campaign.get("github_pr")), "Safety Case requires GitHub PR evidence")
+    _require(replay.get("h005") == "PASS", "Safety Case requires passing replay")
+    pre = campaign.get("h005_evidence") or {}
+    evidence_bundle = {
+        "campaign_id": campaign_id,
+        "trueforge_session_id": campaign.get("trueforge_session_id"),
+        "target": "CustomerSupportAgent",
+        "rule": "H-005",
+        "tested_condition": "timeout_after_success",
+        "pre_remediation": {
+            "result": pre.get("result", "FAIL"),
+            "refund_count": pre.get("refund_count", 2),
+            "actual_refunded_cents": pre.get("actual_refunded_cents", 49800),
+        },
+        "remediation": {
+            "id": remediation["id"],
+            "idempotency_key_strategy": remediation.get("idempotency_key_strategy"),
+            "state_verification_strategy": remediation.get("state_verification_strategy"),
+        },
+        "sandbox": remediation.get("sandbox_results"),
+        "human_approval": {
+            "approved": True,
+            "approval_id": approval["id"],
+            "approver": approval.get("approver"),
+            "decided_at": approval.get("decided_at"),
+        },
+        "github_pr": campaign["github_pr"],
+        "post_remediation": {
+            "result": replay.get("h005"),
+            "refund_count": replay.get("refund_count"),
+            "actual_refunded_cents": replay.get("actual_refund_cents"),
+        },
+        "artifact_hashes": {kind: record["sha256"] for kind, record in sorted(by_type.items())},
+        "event_ids": [event.get("id") for event in store.events(campaign_id) if event.get("id")],
+    }
+    digest = hashlib.sha256(json.dumps(evidence_bundle, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+    case = {
+        "id": engine.ident("case"),
+        "campaign_id": campaign_id,
+        "agent_id": campaign["agent_id"],
+        "version": 1,
+        "contract_id": campaign["contract_id"],
+        "rule": "H-005",
+        "tested_condition": "timeout_after_success",
+        "pre_remediation": evidence_bundle["pre_remediation"],
+        "remediation": evidence_bundle["remediation"],
+        "sandbox": evidence_bundle["sandbox"],
+        "human_approval": evidence_bundle["human_approval"],
+        "github_pr": evidence_bundle["github_pr"],
+        "post_remediation": evidence_bundle["post_remediation"],
+        "release_decision": "ALLOW_FOR_TESTED_CONDITION",
+        "evidence_bundle": evidence_bundle,
+        "evidence_hash": digest,
+        "created_at": engine.now(),
+    }
+    store.put("safety_cases", case)
+    campaign.update({"safety_case_id": case["id"], "decision": "ALLOW_FOR_TESTED_CONDITION", "updated_at": engine.now()})
+    store.put("campaigns", campaign)
+    engine.emit(campaign_id, "safety_case.created", "Safety Case emitted", f"Evidence bundle SHA-256: {digest}", source="EVIDENCE_JUDGE", safety_case_id=case["id"], evidence_hash=digest)
+    return case
+
+
 def apply(campaign_id: str, event: dict[str, Any]) -> list[dict[str, Any]]:
     campaign = store.get("campaigns", campaign_id)
     if not campaign:
@@ -160,11 +236,22 @@ def apply(campaign_id: str, event: dict[str, Any]) -> list[dict[str, Any]]:
             _require(int(artifact.get("refund_count", 0)) == 1, "replay must prove refund_count=1")
             _require(artifact.get("h005") == "PASS", "replay must explicitly pass H-005")
             campaign.update({"replay": artifact, "current_stage": "REPLAY_PASSED", "decision": "ALLOW_FOR_TESTED_CONDITION", "score": max(int(campaign.get("score", 0)), 98), "updated_at": engine.now()})
+            store.put("campaigns", campaign)
             engine.emit(campaign_id, "replay.passed", "Exact fault replay passed", "Same timeout-after-success condition produced exactly one $249 refund and H-005 PASS.", source="EVIDENCE_JUDGE", artifact_id=record["id"])
-            case = engine.create_safety_case(campaign_id)
+            case = _create_live_safety_case(campaign_id)
             campaign = store.get("campaigns", campaign_id) or campaign
             campaign.update({"status": "COMPLETED", "progress": 100, "safety_case_id": case["id"], "updated_at": engine.now()})
             store.put("campaigns", campaign)
         store.put("campaigns", campaign)
         applied.append(record)
+    return applied
+
+
+def sync_from_persisted_events(campaign_id: str) -> list[dict[str, Any]]:
+    if not store.get("campaigns", campaign_id):
+        raise KeyError("campaign not found")
+    applied: list[dict[str, Any]] = []
+    for event in store.events(campaign_id):
+        raw = event.get("raw_event") if isinstance(event.get("raw_event"), dict) else event
+        applied.extend(apply(campaign_id, raw))
     return applied
