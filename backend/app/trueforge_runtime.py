@@ -70,6 +70,8 @@ def _record_github_result(campaign_id:str,event:dict[str,Any])->None:
     if not existing:store.put("github_tool_results",record)
 
 def evaluate_h005(campaign_id):
+    campaign=store.get("campaigns",campaign_id)
+    if campaign and campaign.get("campaign_kind")=="GENERIC_REPOSITORY_INSPECTION":raise RuntimeError("H-005 evaluator is not applicable to generic repository inspections")
     result=h005_evidence.evaluate(campaign_id);campaign=store.get("campaigns",campaign_id)
     if not campaign:raise KeyError("campaign not found")
     latest={"result":result["result"],"order_id":result.get("order_id"),"refund_count":result["refund_count"],"actual_refunded_cents":result["actual_refunded_cents"],"conditions":result["conditions"],"release_recommendation":result["release_recommendation"]}
@@ -84,31 +86,48 @@ def evaluate_h005(campaign_id):
 
 def _apply_runtime_artifacts(campaign_id,event):
     try: verification_artifacts.apply(campaign_id,event)
-    except (ValueError,TypeError,KeyError) as exc:
-        if verification_artifacts.extract(event):engine.emit(campaign_id,"artifact.rejected","Verification artifact rejected",str(exc),source="HARNESS_OS")
+    except Exception as exc:
+        try:has_artifacts=bool(verification_artifacts.extract(event))
+        except Exception:has_artifacts=True
+        if has_artifacts:engine.emit(campaign_id,"artifact.rejected","Verification artifact rejected",str(exc)[:1200],source="HARNESS_OS")
+
+def _complete_generic(campaign,event_type):
+    if event_type in {"turn.failed"}:
+        campaign.update({"status":"ERROR","current_stage":"REPOSITORY_INSPECTION_FAILED","decision":"INCONCLUSIVE","updated_at":engine.now()})
+    elif event_type in {"turn.cancelled"}:
+        campaign.update({"status":"CANCELLED","current_stage":"REPOSITORY_INSPECTION_CANCELLED","decision":"INCONCLUSIVE","updated_at":engine.now()})
+    else:
+        campaign.update({"status":"COMPLETED","current_stage":"REPOSITORY_INSPECTION_COMPLETE","progress":100,"decision":"INCONCLUSIVE","updated_at":engine.now()})
+    store.put("campaigns",campaign)
 
 async def sync_campaign(campaign_id):
     client=TrueForgeClient.from_env();seen={f"{e.get('trueforge_turn_id') or '-'}:{e.get('trueforge_event_id')}" for e in store.events(campaign_id) if e.get("trueforge_event_id")};poll=float(os.getenv("TRUEFORGE_EVENT_POLL_SECONDS","1"))
     while True:
         campaign=store.get("campaigns",campaign_id)
         if not campaign or campaign.get("status") in {"CANCELLED","COMPLETED","ERROR"}:return
+        generic=campaign.get("campaign_kind")=="GENERIC_REPOSITORY_INSPECTION"
         try:
-            terminal=False
+            terminal_type=None
             for item in reversed(_items(client.list_session_events(campaign["trueforge_session_id"],limit=100))):
                 turn_id,event=_event_payload(item);key=_event_key(turn_id,event)
                 if key in seen:continue
                 seen.add(key);event_type=str(event.get("type","trueforge.event"));engine.emit(campaign_id,event_type,_title(event_type),_detail(event),source="TRUEFORGE",trueforge_event_id=event.get("id"),trueforge_session_id=campaign["trueforge_session_id"],trueforge_turn_id=turn_id,trueforge_thread_id=event.get("thread_id") or event.get("threadId"),raw_event=event)
                 _record_github_result(campaign_id,event)
-                _apply_runtime_artifacts(campaign_id,event);campaign=store.get("campaigns",campaign_id) or campaign
+                if not generic:_apply_runtime_artifacts(campaign_id,event)
+                campaign=store.get("campaigns",campaign_id) or campaign
                 if event_type=="tool.approval_required":
                     approval=_approval_from_event(campaign,turn_id,event)
                     if approval:engine.emit(campaign_id,"approval.requested","Human approval required","TrueForge paused structured GitHub mutation calls.",source="HARNESS_OS",approval_id=approval["id"])
-                if event_type in TERMINAL_EVENT_TYPES:terminal=True
-            try:evaluate_h005(campaign_id)
-            except RuntimeError:pass
+                if event_type in TERMINAL_EVENT_TYPES:terminal_type=event_type
+            if not generic:
+                try:evaluate_h005(campaign_id)
+                except RuntimeError:pass
             campaign=store.get("campaigns",campaign_id) or campaign
             if campaign.get("status")=="COMPLETED":return
-            if terminal and campaign.get("status")!="WAITING_APPROVAL":campaign.update({"current_stage":"TRUEFORGE_THREAD_COMPLETE","updated_at":engine.now()});store.put("campaigns",campaign);return
+            if terminal_type and campaign.get("status")!="WAITING_APPROVAL":
+                if generic:_complete_generic(campaign,terminal_type)
+                else:campaign.update({"current_stage":"TRUEFORGE_THREAD_COMPLETE","updated_at":engine.now()});store.put("campaigns",campaign)
+                return
         except Exception as exc:
             campaign=store.get("campaigns",campaign_id) or campaign;campaign.update({"status":"ERROR","current_stage":"TRUEFORGE_EVENT_SYNC_FAILED","runtime_error":str(exc),"updated_at":engine.now()});store.put("campaigns",campaign);return
         await asyncio.sleep(poll)
@@ -127,4 +146,6 @@ def decide_approval(approval_id,approved,actor,reason):
     if not approval:raise KeyError("approval not found")
     if approval.get("status")!="PENDING":raise ValueError("approval already decided")
     if approval.get("authorized_action")!="github_remediation_write" or not approval.get("approved_targets"):raise ValueError("approval is not bound to structured GitHub remediation writes")
-    campaign=store.get("campaigns",approval["campaign_id"]);client=TrueForgeClient.from_env();turn=client.resume_with_approval(campaign["trueforge_session_id"],approved=approved,thread_id=approval.get("trueforge_thread_id") or "",tool_call_ids=approval["tool_call_ids"],reason=reason);approval.update({"status":"APPROVED" if approved else "REJECTED","approver":actor,"reason":reason,"decided_at":engine.now(),"resume_turn_id":turn.get("id")});store.put("approvals",approval);campaign.update({"status":"RUNNING","current_stage":"TRUEFORGE_RESUMED_AFTER_APPROVAL","updated_at":engine.now()});store.put("campaigns",campaign);return approval
+    campaign=store.get("campaigns",approval["campaign_id"])
+    if not campaign or campaign.get("status")!="WAITING_APPROVAL":raise ValueError("campaign is no longer waiting for this approval")
+    client=TrueForgeClient.from_env();turn=client.resume_with_approval(campaign["trueforge_session_id"],approved=approved,thread_id=approval.get("trueforge_thread_id") or "",tool_call_ids=approval["tool_call_ids"],reason=reason);approval.update({"status":"APPROVED" if approved else "REJECTED","approver":actor,"reason":reason,"decided_at":engine.now(),"resume_turn_id":turn.get("id")});store.put("approvals",approval);campaign.update({"status":"RUNNING","current_stage":"TRUEFORGE_RESUMED_AFTER_APPROVAL","updated_at":engine.now()});store.put("campaigns",campaign);return approval
