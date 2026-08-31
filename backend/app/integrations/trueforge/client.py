@@ -1,16 +1,51 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
 class TrueForgeError(RuntimeError):
     pass
+
+
+def _positive_timeout(value: str | None, default: float = 15.0) -> float:
+    if value is None or value.strip() == "":
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("TrueForge request timeout must be numeric") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("TrueForge request timeout must be a positive finite number")
+    return parsed
+
+
+def _normalize_base_url(raw: str | None, *, mode: str) -> str:
+    value = (raw or "").strip().rstrip("/")
+    if not value:
+        if mode == "live":
+            raise ValueError(
+                "TRUEFORGE_BASE_URL is required in live mode. Point it to the public TrueForge API base; localhost fallback is disabled."
+            )
+        return "http://127.0.0.1:8790"
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("TRUEFORGE_BASE_URL must be an absolute http(s) URL")
+
+    hostname = (parsed.hostname or "").lower()
+    loopback_hosts = {"127.0.0.1", "localhost", "::1"}
+    if mode == "live" and hostname in loopback_hosts:
+        raise ValueError(
+            "TRUEFORGE_BASE_URL points to localhost while HARNESS_OS_MODE=live. Use the public hosted TrueForge API base instead."
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -21,11 +56,16 @@ class TrueForgeClient:
 
     @classmethod
     def from_env(cls) -> "TrueForgeClient":
-        return cls(
-            os.getenv("TRUEFORGE_BASE_URL", "http://127.0.0.1:8790").rstrip("/"),
-            os.getenv("TRUEFORGE_TOKEN") or None,
-            float(os.getenv("TRUEFORGE_REQUEST_TIMEOUT_SECONDS", os.getenv("TRUEFORGE_TIMEOUT_SECONDS", "15"))),
+        mode = os.getenv("HARNESS_OS_MODE", "demo").strip().lower()
+        # TRUEFORGE_API_BASE_URL is accepted as an explicit hosted alias so deployments
+        # can distinguish the API origin from any human-facing TrueForge dashboard URL.
+        raw_base = os.getenv("TRUEFORGE_API_BASE_URL") or os.getenv("TRUEFORGE_BASE_URL")
+        base_url = _normalize_base_url(raw_base, mode=mode)
+        timeout = _positive_timeout(
+            os.getenv("TRUEFORGE_REQUEST_TIMEOUT_SECONDS", os.getenv("TRUEFORGE_TIMEOUT_SECONDS")),
+            15.0,
         )
+        return cls(base_url, os.getenv("TRUEFORGE_TOKEN") or None, timeout)
 
     def _request(
         self,
@@ -52,6 +92,14 @@ class TrueForgeClient:
                 body = json.loads(raw or b"{}")
         except HTTPError as exc:
             raw = exc.read().decode(errors="replace")
+            if exc.code in {401, 403}:
+                raise TrueForgeError(
+                    f"TrueForge authentication failed at {self.base_url}: HTTP {exc.code}. Check the server-side TRUEFORGE_TOKEN."
+                ) from exc
+            if exc.code == 404:
+                raise TrueForgeError(
+                    f"TrueForge API endpoint was not found at {self.base_url}{path}. Verify TRUEFORGE_BASE_URL/TRUEFORGE_API_BASE_URL points to the API origin, not the dashboard URL."
+                ) from exc
             raise TrueForgeError(
                 f"TrueForge {method} {path} returned {exc.code}: {raw[:500]}"
             ) from exc
@@ -59,8 +107,14 @@ class TrueForgeClient:
             raise TrueForgeError(
                 f"TrueForge unavailable at {self.base_url}: {exc.reason}"
             ) from exc
-        except (TimeoutError, json.JSONDecodeError) as exc:
-            raise TrueForgeError(f"Invalid/timeout response from TrueForge: {exc}") from exc
+        except TimeoutError as exc:
+            raise TrueForgeError(
+                f"TrueForge request timed out after {self.timeout:g}s at {self.base_url}"
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise TrueForgeError(
+                f"TrueForge returned a non-JSON response from {self.base_url}{path}; verify the configured API base."
+            ) from exc
         return body.get("data", body)
 
     def capabilities(self) -> dict[str, Any]:
