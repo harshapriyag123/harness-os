@@ -1,34 +1,122 @@
 from __future__ import annotations
-import json,os
-from dataclasses import dataclass
-from typing import Any,Iterator
-from urllib.error import HTTPError,URLError
-from urllib.request import Request,urlopen
 
-class TrueForgeError(RuntimeError): pass
+import json
+import os
+from dataclasses import dataclass
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+class TrueForgeError(RuntimeError):
+    pass
+
 
 @dataclass(frozen=True)
 class TrueForgeClient:
- base_url:str
- token:str|None=None
- timeout:float=10
- @classmethod
- def from_env(cls): return cls(os.getenv('TRUEFORGE_BASE_URL','http://127.0.0.1:8790').rstrip('/'),os.getenv('TRUEFORGE_TOKEN') or None)
- def _request(self,method:str,path:str,payload:dict[str,Any]|None=None)->dict[str,Any]:
-  headers={'Accept':'application/json'}
-  if payload is not None:headers['Content-Type']='application/json'
-  if self.token:headers['Authorization']=f'Bearer {self.token}'
-  request=Request(f'{self.base_url}{path}',method=method,headers=headers,data=json.dumps(payload).encode() if payload is not None else None)
-  try:
-   with urlopen(request,timeout=self.timeout) as response:body=json.loads(response.read() or b'{}')
-  except HTTPError as exc:
-   raw=exc.read().decode(errors='replace');raise TrueForgeError(f'TrueForge {method} {path} returned {exc.code}: {raw[:500]}') from exc
-  except URLError as exc:raise TrueForgeError(f'TrueForge unavailable at {self.base_url}: {exc.reason}') from exc
-  return body.get('data',body)
- def capabilities(self):return self._request('GET','/api/v1/capabilities')
- def create_session(self,agent_name:str):return self._request('POST','/api/v1/sessions',{'agent':{'name':agent_name}})
- def get_session(self,session_id:str):return self._request('GET',f'/api/v1/sessions/{session_id}')
- def submit_task(self,session_id:str,task:str,stream:bool=False):return self._request('POST',f'/api/v1/sessions/{session_id}/turns',{'input':[{'content':task,'type':'user.message'}],'previous_turn_id':'auto','stream':stream})
- def list_session_events(self,session_id:str):return self._request('GET',f'/api/v1/sessions/{session_id}/events')
- def list_turn_events(self,session_id:str,turn_id:str):return self._request('GET',f'/api/v1/sessions/{session_id}/turns/{turn_id}/events')
- def cancel_session(self,session_id:str):return self._request('POST',f'/api/v1/sessions/{session_id}/cancel')
+    base_url: str
+    token: str | None = None
+    timeout: float = 15
+
+    @classmethod
+    def from_env(cls) -> "TrueForgeClient":
+        return cls(
+            os.getenv("TRUEFORGE_BASE_URL", "http://127.0.0.1:8790").rstrip("/"),
+            os.getenv("TRUEFORGE_TOKEN") or None,
+            float(os.getenv("TRUEFORGE_TIMEOUT_SECONDS", "15")),
+        )
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        headers = {"Accept": "application/json", "User-Agent": "HarnessOS/1.0"}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        suffix = f"?{urlencode({k: v for k, v in (query or {}).items() if v is not None})}" if query else ""
+        request = Request(
+            f"{self.base_url}{path}{suffix}",
+            method=method,
+            headers=headers,
+            data=json.dumps(payload).encode() if payload is not None else None,
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                raw = response.read()
+                body = json.loads(raw or b"{}")
+        except HTTPError as exc:
+            raw = exc.read().decode(errors="replace")
+            raise TrueForgeError(
+                f"TrueForge {method} {path} returned {exc.code}: {raw[:500]}"
+            ) from exc
+        except URLError as exc:
+            raise TrueForgeError(
+                f"TrueForge unavailable at {self.base_url}: {exc.reason}"
+            ) from exc
+        except (TimeoutError, json.JSONDecodeError) as exc:
+            raise TrueForgeError(f"Invalid/timeout response from TrueForge: {exc}") from exc
+        return body.get("data", body)
+
+    def capabilities(self) -> dict[str, Any]:
+        return self._request("GET", "/api/v1/capabilities")
+
+    def create_session(self, agent_name: str) -> dict[str, Any]:
+        return self._request("POST", "/api/v1/sessions", {"agent": {"name": agent_name}})
+
+    def get_session(self, session_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/sessions/{session_id}")
+
+    def submit_task(
+        self,
+        session_id: str,
+        task: str,
+        *,
+        stream: bool = False,
+        previous_turn_id: str = "auto",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/turns",
+            {
+                "input": [{"content": task, "type": "user.message"}],
+                "previous_turn_id": previous_turn_id,
+                "stream": stream,
+            },
+        )
+
+    def resume_with_approval(
+        self,
+        session_id: str,
+        *,
+        approved: bool,
+        tool_call_ids: list[str],
+        reason: str,
+    ) -> dict[str, Any]:
+        # TrueForge human checkpoints are resumed through a new chained turn.
+        # Keep the payload human-readable and auditable; the harness agent is
+        # instructed to act only on the referenced pending tool calls.
+        decision = "APPROVE" if approved else "REJECT"
+        task = (
+            f"Human checkpoint decision: {decision}. "
+            f"Pending tool call ids: {', '.join(tool_call_ids)}. "
+            f"Reason: {reason}. Resume the verification from the pending checkpoint; "
+            "do not repeat already-completed irreversible tool calls."
+        )
+        return self.submit_task(session_id, task, stream=False, previous_turn_id="auto")
+
+    def list_session_events(self, session_id: str, limit: int = 100) -> dict[str, Any]:
+        return self._request(
+            "GET", f"/api/v1/sessions/{session_id}/events", query={"limit": limit}
+        )
+
+    def list_turn_events(self, session_id: str, turn_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/v1/sessions/{session_id}/turns/{turn_id}/events")
+
+    def cancel_session(self, session_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/api/v1/sessions/{session_id}/cancel", {})
