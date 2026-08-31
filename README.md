@@ -36,6 +36,28 @@ The Harness OS UI also renders a **Judge Quick Links** bar above the dashboard w
 
 ---
 
+## 🧩 Live Judge Mode — TrueForge + Qodo inside the product UI
+
+The local Harness OS UI now exposes the complete assurance chain directly above the React dashboard:
+
+```text
+TrueForge → FaultLine MCP → GitHub MCP → Qodo Review → Safety Case
+```
+
+This is not a decorative architecture diagram. The UI calls `/api/v1/integrations` and shows runtime/evidence status for each stage:
+
+- **TrueForge** — performs a real capability check and only displays `CONNECTED` when the configured runtime is reachable.
+- **FaultLine MCP** — shows the configured H-005 chaos endpoint used for timeout-after-success fault injection.
+- **GitHub MCP** — identifies the approval-gated repository channel attached to the TrueForge agent.
+- **Qodo Review** — reads GitHub PR review/comment evidence and detects real `qodo-code-review[bot]` activity; missing evidence is shown as `NO REVIEW FOUND` or `UNAVAILABLE`, never faked.
+- **Safety Case** — shows persisted Harness OS release-evidence state.
+
+For judging, this gives one coherent story: **TrueForge executes, FaultLine attacks, GitHub provides the controlled code-change path, Qodo independently reviews the code, and Harness OS turns all of that evidence into a release gate.**
+
+See [Live Judge Mode](docs/JUDGE_MODE.md) for local setup and the recommended two-minute walkthrough.
+
+---
+
 ## Judge view — 30 seconds
 
 **Problem:** Agentic systems can trigger irreversible external actions. A timeout does not mean an action failed; it may mean the action succeeded and only the response was lost.
@@ -136,6 +158,7 @@ The React/Vite dashboard in `frontend/` is the judge-facing Harness OS control p
 - **Safety Cases** — release decision and evidence package
 - **Integrations** — TrueForge/runtime connectivity
 - **Judge Quick Links** — public source, evidence and live service links
+- **Live Judge Mode** — real-time TrueForge/Qodo assurance-pipeline evidence
 
 The dashboard reads data from `VITE_API_URL`; do not point it at the refund fixture. For a public deployment:
 
@@ -254,7 +277,9 @@ Render free services can cold-start after inactivity. Warm both health URLs befo
 ```text
 backend/
   app/
-    integrations/trueforge/   # TrueForge HTTP integration
+    integrations/
+      trueforge/               # TrueForge HTTP integration
+      qodo.py                  # live Qodo review evidence from GitHub
     fixture_service.py        # controlled refund fixture API
     h005_evidence.py          # H-005 evidence evaluation
     trueforge_runtime.py      # runtime event normalization
@@ -268,7 +293,10 @@ fixtures/
 mcp-chaos/
   src/server.mjs              # FaultLine H-005 Streamable HTTP MCP
 
-frontend/                     # Harness OS React/Vite UI
+frontend/
+  src/judge-integrations.ts   # live judge-mode assurance pipeline
+  src/judge-integrations.css  # judge-mode presentation
+  src/main.tsx                # Harness OS React/Vite UI
 trueforge/                    # agent instructions and skills
 docs/                         # architecture, integration and demo docs
 ```
@@ -383,6 +411,8 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+For the full **TrueForge + Qodo Live Judge Mode** environment variables and judge walkthrough, see [`docs/JUDGE_MODE.md`](docs/JUDGE_MODE.md).
+
 ---
 
 ## Test and quality gates
@@ -397,7 +427,9 @@ node --check mcp-chaos/src/server.mjs
 
 The evidence pipeline has gone through multiple Qodo review rounds. The hardening work merged in [PR #5](https://github.com/harshapriyag123/harness-os/pull/5) addressed structured-artifact trust, GitHub operation binding, strict sandbox PASS handling, immutable baseline evidence, replay ordering, operation-bound H-005 evaluation, and Safety Case gating.
 
-PR #7 then added judge-facing public links and deployment guidance. Qodo found three follow-up correctness issues there—public-frontend CORS, shared-shell startup paths, and invalid PowerShell environment syntax—and this follow-up fixes all three before the public UI deployment.
+PR #7 then added judge-facing public links and deployment guidance. Qodo found three follow-up correctness issues there—public-frontend CORS, shared-shell startup paths, and invalid PowerShell environment syntax—and the follow-up implementation fixed all three before the public UI deployment.
+
+The UI now also surfaces Qodo review evidence through the Harness OS control-plane API, so Qodo is part of the visible assurance chain rather than only a badge in the README.
 
 This review history is part of the project story: **the verifier itself must be held to a high evidence standard.**
 
@@ -414,10 +446,12 @@ This review history is part of the project story: **the verifier itself must be 
 | `TRUEFORGE_TOKEN` | Runtime auth token when required |
 | `TRUEFORGE_AGENT_NAME` | Named agent, typically `harness-os` |
 | `HARNESS_CHAOS_MCP_URL` | FaultLine MCP endpoint |
+| `QODO_REPOSITORY` | GitHub repository inspected for live Qodo evidence; defaults to `harshapriyag123/harness-os` |
+| `QODO_PR_NUMBER` | PR whose Qodo bot activity is surfaced in Live Judge Mode; defaults to `7` |
 | `FIXTURE_BASE_URL` | Refund fixture origin used by FaultLine MCP |
 | `FIXTURE_DB` | Refund fixture SQLite path |
 | `VITE_API_URL` | Public Harness OS control-plane API origin used by the React UI |
-| `GITHUB_TOKEN` | Server-side GitHub credential where applicable; never expose to frontend |
+| `GITHUB_TOKEN` | Optional server-side GitHub credential used for API/MCP access and Qodo evidence retrieval; never expose to frontend |
 
 Never commit `.env`, API keys, provider credentials, tokens, or runtime databases.
 
@@ -437,7 +471,7 @@ It does not claim that one successful test makes an arbitrary agent globally saf
 
 ## Two-minute demo narrative
 
-> “This agent refunds $249. The refund succeeds, but the response times out. The agent retries and the customer receives $498. Harness OS proves the violation from real side effects, traces the exact unsafe code path, proposes an idempotency and state-verification remediation, places repository mutation behind a human control gate, and builds the evidence needed for a narrow release decision.”
+> “This agent refunds $249. The refund succeeds, but the response times out. The agent retries and the customer receives $498. Harness OS proves the violation from real side effects, traces the exact unsafe code path, proposes an idempotency and state-verification remediation, places repository mutation behind a human control gate, shows the independent Qodo review evidence in the same UI, and builds the evidence needed for a narrow release decision.”
 
 See [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the full judge flow.
 
@@ -445,6 +479,7 @@ See [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) for the full judge flow.
 
 ## Documentation
 
+- [Live Judge Mode — TrueForge + Qodo](docs/JUDGE_MODE.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [TrueForge integration](docs/TRUEFORGE_INTEGRATION.md)
