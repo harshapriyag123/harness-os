@@ -32,7 +32,7 @@ When the public frontend and demo video are available, keep the README header to
 🔍 Qodo Evidence  https://github.com/harshapriyag123/harness-os/pull/5
 ```
 
-The Harness OS UI now also renders a **Judge Quick Links** bar above the dashboard with Source Code, Qodo Evidence, Refund Fixture Health, and FaultLine Health, so a judge can move directly from the product experience to independently inspectable evidence.
+The Harness OS UI also renders a **Judge Quick Links** bar above the dashboard with Source Code, Qodo Evidence, Refund Fixture Health, and FaultLine Health, so a judge can move directly from the product experience to independently inspectable evidence.
 
 ---
 
@@ -137,7 +137,13 @@ The React/Vite dashboard in `frontend/` is the judge-facing Harness OS control p
 - **Integrations** — TrueForge/runtime connectivity
 - **Judge Quick Links** — public source, evidence and live service links
 
-The dashboard reads data from `VITE_API_URL`; do not point it at the refund fixture. For a public deployment, deploy `backend/app/main.py` as the Harness OS control-plane API and configure the frontend with that public API origin.
+The dashboard reads data from `VITE_API_URL`; do not point it at the refund fixture. For a public deployment:
+
+1. deploy `backend/app/main.py` as the Harness OS control-plane API;
+2. set `HARNESS_OS_CORS_ORIGINS` on that API to the public frontend origin, for example `https://harness-os-ui.example.com`;
+3. deploy `frontend/` with `VITE_API_URL` set to the public control-plane API origin.
+
+`HARNESS_OS_CORS_ORIGINS` accepts a comma-separated allowlist and always retains `http://localhost:5173` for local development. This allowlist is used by both normal dashboard fetches and the campaign EventSource stream.
 
 ---
 
@@ -273,45 +279,106 @@ docs/                         # architecture, integration and demo docs
 
 Requirements: Python 3.12, Node.js 22+, npm.
 
+Each service below is long-running. Start each block from the **repository root in its own terminal** so no command depends on another terminal's working directory.
+
+### 1. Install backend dependencies
+
+macOS/Linux:
+
 ```bash
 cd backend
 python -m venv .venv
-# macOS/Linux
 source .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Start the controlled fixture:
+Windows PowerShell:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### 2. Start the controlled fixture
+
+macOS/Linux:
 
 ```bash
+cd backend
+source .venv/bin/activate
 uvicorn app.fixture_service:app --reload --port 8950
 ```
 
-Start FaultLine:
+Windows PowerShell:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.fixture_service:app --reload --port 8950
+```
+
+### 3. Start FaultLine
+
+macOS/Linux:
 
 ```bash
-cd ../mcp-chaos
-FIXTURE_BASE_URL=http://127.0.0.1:8950 npm install
+cd mcp-chaos
+npm install
 FIXTURE_BASE_URL=http://127.0.0.1:8950 npm start
 ```
 
-Start Harness OS control-plane API:
+Windows PowerShell:
+
+```powershell
+cd mcp-chaos
+npm install
+$env:FIXTURE_BASE_URL = "http://127.0.0.1:8950"
+npm start
+```
+
+### 4. Start the Harness OS control-plane API
+
+macOS/Linux:
 
 ```bash
-cd ../backend
+cd backend
+source .venv/bin/activate
 HARNESS_OS_MODE=demo \
 TRUEFORGE_BASE_URL=http://127.0.0.1:8790 \
 TRUEFORGE_AGENT_NAME=harness-os \
 uvicorn app.main:app --reload --port 8080
 ```
 
-Start the UI:
+Windows PowerShell:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+$env:HARNESS_OS_MODE = "demo"
+$env:TRUEFORGE_BASE_URL = "http://127.0.0.1:8790"
+$env:TRUEFORGE_AGENT_NAME = "harness-os"
+uvicorn app.main:app --reload --port 8080
+```
+
+### 5. Start the UI
+
+macOS/Linux:
 
 ```bash
-cd ../frontend
+cd frontend
 npm install
 VITE_API_URL=http://127.0.0.1:8080 npm run dev
+```
+
+Windows PowerShell:
+
+```powershell
+cd frontend
+npm install
+$env:VITE_API_URL = "http://127.0.0.1:8080"
+npm run dev
 ```
 
 Open `http://127.0.0.1:5173`.
@@ -330,6 +397,8 @@ node --check mcp-chaos/src/server.mjs
 
 The evidence pipeline has gone through multiple Qodo review rounds. The hardening work merged in [PR #5](https://github.com/harshapriyag123/harness-os/pull/5) addressed structured-artifact trust, GitHub operation binding, strict sandbox PASS handling, immutable baseline evidence, replay ordering, operation-bound H-005 evaluation, and Safety Case gating.
 
+PR #7 then added judge-facing public links and deployment guidance. Qodo found three follow-up correctness issues there—public-frontend CORS, shared-shell startup paths, and invalid PowerShell environment syntax—and this follow-up fixes all three before the public UI deployment.
+
 This review history is part of the project story: **the verifier itself must be held to a high evidence standard.**
 
 ---
@@ -340,6 +409,7 @@ This review history is part of the project story: **the verifier itself must be 
 |---|---|
 | `HARNESS_OS_MODE` | `demo` or `live`; live mode must not silently fall back to demo execution |
 | `HARNESS_OS_DB` | Harness OS SQLite path |
+| `HARNESS_OS_CORS_ORIGINS` | Comma-separated public frontend origins allowed to call the control-plane API; local Vite remains allowed |
 | `TRUEFORGE_BASE_URL` | TrueForge/TrueFoundry runtime origin |
 | `TRUEFORGE_TOKEN` | Runtime auth token when required |
 | `TRUEFORGE_AGENT_NAME` | Named agent, typically `harness-os` |
