@@ -14,7 +14,15 @@ class TrueForgeError(RuntimeError):
     pass
 
 
-def _positive_timeout(value: str | None, default: float = 15.0) -> float:
+# Judge/demo defaults are code-owned so local and hosted Harness OS instances do not
+# require a large .env just to find the services already used by this project.
+# Secrets are intentionally NOT hard-coded.
+DEFAULT_TRUEFORGE_BASE_URL = "https://harsha.truefoundry.cloud"
+DEFAULT_TRUEFORGE_AGENT_NAME = "harness-os"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
+
+
+def _positive_timeout(value: str | None, default: float = DEFAULT_REQUEST_TIMEOUT_SECONDS) -> float:
     if value is None or value.strip() == "":
         return default
     try:
@@ -26,25 +34,11 @@ def _positive_timeout(value: str | None, default: float = 15.0) -> float:
     return parsed
 
 
-def _normalize_base_url(raw: str | None, *, mode: str) -> str:
-    value = (raw or "").strip().rstrip("/")
-    if not value:
-        if mode == "live":
-            raise ValueError(
-                "TRUEFORGE_BASE_URL is required in live mode. Point it to the public TrueForge API base; localhost fallback is disabled."
-            )
-        return "http://127.0.0.1:8790"
-
+def _normalize_base_url(raw: str | None) -> str:
+    value = (raw or DEFAULT_TRUEFORGE_BASE_URL).strip().rstrip("/")
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("TRUEFORGE_BASE_URL must be an absolute http(s) URL")
-
-    hostname = (parsed.hostname or "").lower()
-    loopback_hosts = {"127.0.0.1", "localhost", "::1"}
-    if mode == "live" and hostname in loopback_hosts:
-        raise ValueError(
-            "TRUEFORGE_BASE_URL points to localhost while HARNESS_OS_MODE=live. Use the public hosted TrueForge API base instead."
-        )
+        raise ValueError("TrueForge API base must be an absolute http(s) URL")
     return value
 
 
@@ -52,18 +46,18 @@ def _normalize_base_url(raw: str | None, *, mode: str) -> str:
 class TrueForgeClient:
     base_url: str
     token: str | None = None
-    timeout: float = 15
+    timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
 
     @classmethod
     def from_env(cls) -> "TrueForgeClient":
-        mode = os.getenv("HARNESS_OS_MODE", "demo").strip().lower()
-        # TRUEFORGE_API_BASE_URL is accepted as an explicit hosted alias so deployments
-        # can distinguish the API origin from any human-facing TrueForge dashboard URL.
+        # The project already has a known hosted TrueForge origin. Environment variables
+        # are overrides, not mandatory configuration. Only secrets such as the token
+        # should normally need to be supplied outside source control.
         raw_base = os.getenv("TRUEFORGE_API_BASE_URL") or os.getenv("TRUEFORGE_BASE_URL")
-        base_url = _normalize_base_url(raw_base, mode=mode)
+        base_url = _normalize_base_url(raw_base)
         timeout = _positive_timeout(
             os.getenv("TRUEFORGE_REQUEST_TIMEOUT_SECONDS", os.getenv("TRUEFORGE_TIMEOUT_SECONDS")),
-            15.0,
+            DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         return cls(base_url, os.getenv("TRUEFORGE_TOKEN") or None, timeout)
 
@@ -94,11 +88,11 @@ class TrueForgeClient:
             raw = exc.read().decode(errors="replace")
             if exc.code in {401, 403}:
                 raise TrueForgeError(
-                    f"TrueForge authentication failed at {self.base_url}: HTTP {exc.code}. Check the server-side TRUEFORGE_TOKEN."
+                    f"TrueForge authentication failed at {self.base_url}: HTTP {exc.code}. Set TRUEFORGE_TOKEN on the backend if this deployment requires authentication."
                 ) from exc
             if exc.code == 404:
                 raise TrueForgeError(
-                    f"TrueForge API endpoint was not found at {self.base_url}{path}. Verify TRUEFORGE_BASE_URL/TRUEFORGE_API_BASE_URL points to the API origin, not the dashboard URL."
+                    f"TrueForge API endpoint was not found at {self.base_url}{path}. The known hosted URL is reachable but may be a dashboard origin rather than the API origin. Override TRUEFORGE_API_BASE_URL only if TrueForge exposes a different API host."
                 ) from exc
             raise TrueForgeError(
                 f"TrueForge {method} {path} returned {exc.code}: {raw[:500]}"
@@ -113,14 +107,14 @@ class TrueForgeClient:
             ) from exc
         except json.JSONDecodeError as exc:
             raise TrueForgeError(
-                f"TrueForge returned a non-JSON response from {self.base_url}{path}; verify the configured API base."
+                f"TrueForge returned a non-JSON response from {self.base_url}{path}; the configured host may be the dashboard rather than the API origin."
             ) from exc
         return body.get("data", body)
 
     def capabilities(self) -> dict[str, Any]:
         return self._request("GET", "/api/v1/capabilities")
 
-    def create_session(self, agent_name: str) -> dict[str, Any]:
+    def create_session(self, agent_name: str = DEFAULT_TRUEFORGE_AGENT_NAME) -> dict[str, Any]:
         return self._request("POST", "/api/v1/sessions", {"agent": {"name": agent_name}})
 
     def get_session(self, session_id: str) -> dict[str, Any]:
