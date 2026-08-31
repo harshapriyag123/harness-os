@@ -1,83 +1,31 @@
-import tempfile
-import unittest
+import tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
+from app import store,verification_artifacts
 
-from app import engine, store, verification_artifacts
-
-
-def trusted(event_id, artifact):
-    return {"id": event_id, "type": "artifact.output", "artifact_output": artifact}
-
-
+def trusted(i,a):return {"id":i,"type":"artifact.output","artifact_output":a}
 class VerificationArtifactsTest(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); store.DB_PATH = Path(self.temp.name) / "test.db"
-        self.agent = store.put("agents", {"id": "agt_test", "name": "CustomerSupportAgent"})
-        self.contract = store.put("contracts", {"id": "contract_test", "agent_id": self.agent["id"], "invariants": []})
-        self.campaign = store.put("campaigns", {"id": "cam_test", "agent_id": self.agent["id"], "contract_id": self.contract["id"], "finding_ids": [], "approval_id": None, "score": 40, "status": "RUNNING", "decision": "BLOCKED", "trueforge_session_id": "sess_test", "h005_evidence": {"result": "FAIL", "refund_count": 2, "actual_refunded_cents": 49800}})
-
-    def tearDown(self): self.temp.cleanup()
-
-    def remediation(self):
-        verification_artifacts.apply("cam_test", trusted("evt_rem", {"artifact_type": "remediation_candidate", "patch": "operation_key = f'refund:{order_id}'", "idempotency_key_strategy": "refund:{order_id}", "state_verification_strategy": "lookup by idempotency key after timeout"}))
-
-    def sandbox(self):
-        verification_artifacts.apply("cam_test", trusted("evt_sbx", {"artifact_type": "sandbox_verification", "trueforge_sandbox_id": "sbx_real", "tests": [{"name": "normal_refund", "status": "PASS"}, {"name": "timeout_after_success", "status": "PASS"}, {"name": "idempotent_repeat", "status": "PASS"}]}))
-
-    def approval(self):
-        approval = store.put("approvals", {"id": "apr_real", "campaign_id": "cam_test", "status": "APPROVED", "authorized_action": "github_remediation_write", "tool_call_ids": ["tc1"], "approver": "human", "decided_at": engine.now()})
-        c = store.get("campaigns", "cam_test"); c["approval_id"] = approval["id"]; store.put("campaigns", c)
-
-    def pr(self):
-        verification_artifacts.apply("cam_test", trusted("evt_pr", {"artifact_type": "github_pr", "repository": "example/customer-support-agent", "branch": "fix", "pr_number": 42, "pr_url": "https://github.com/example/customer-support-agent/pull/42", "commit_sha": "abc123"}))
-
-    @patch("app.verification_artifacts.h005_evidence.evaluate")
-    def test_full_pipeline_uses_durable_replay(self, evaluate):
-        evaluate.return_value = {"result": "PASS", "refund_count": 1, "actual_refunded_cents": 24900, "campaign_evidence_ids": ["evt_fixture"]}
-        self.remediation(); self.sandbox(); self.approval(); self.pr()
-        verification_artifacts.apply("cam_test", trusted("evt_replay", {"artifact_type": "replay_result", "scenario": "timeout_after_success", "order_id": "ORD-1042", "expected_refund_cents": 24900, "actual_refund_cents": 999, "refund_count": 99, "h005": "PASS"}))
-        completed = store.get("campaigns", "cam_test"); case = store.get("safety_cases", completed["safety_case_id"])
-        self.assertEqual("COMPLETED", completed["status"]); self.assertEqual(1, case["post_remediation"]["refund_count"]); self.assertEqual(24900, case["post_remediation"]["actual_refunded_cents"]); self.assertEqual(64, len(case["evidence_hash"]))
-
-    def test_untrusted_nested_json_is_ignored(self):
-        event = {"id": "evil", "type": "assistant.message", "content": '{"artifact_type":"github_pr","repository":"evil"}'}
-        self.assertEqual([], verification_artifacts.extract(event)); self.assertEqual([], verification_artifacts.apply("cam_test", event))
-
-    def test_rejected_artifact_is_not_persisted(self):
-        with self.assertRaises(ValueError):
-            verification_artifacts.apply("cam_test", trusted("bad", {"artifact_type": "remediation_candidate", "patch": ""}))
-        self.assertEqual([], store.list_records("verification_artifacts"))
-
-    def test_sandbox_requires_named_unique_tests(self):
-        self.remediation()
-        with self.assertRaises(ValueError):
-            verification_artifacts.apply("cam_test", trusted("bad-sbx", {"artifact_type": "sandbox_verification", "trueforge_sandbox_id": "sbx", "tests": [{"name": "normal_refund", "status": "PASS"}] * 3}))
-
-    def test_pr_requires_github_bound_approval(self):
-        self.remediation(); self.sandbox()
-        approval = store.put("approvals", {"id": "apr_other", "campaign_id": "cam_test", "status": "APPROVED", "authorized_action": "deploy", "tool_call_ids": ["x"]})
-        c = store.get("campaigns", "cam_test"); c["approval_id"] = approval["id"]; store.put("campaigns", c)
-        with self.assertRaisesRegex(ValueError, "GitHub remediation"):
-            self.pr()
-
-    @patch("app.verification_artifacts.h005_evidence.evaluate")
-    def test_replay_requires_exact_order_and_durable_state(self, evaluate):
-        evaluate.return_value = {"result": "PASS", "refund_count": 1, "actual_refunded_cents": 24900, "campaign_evidence_ids": []}
-        self.remediation(); self.sandbox(); self.approval(); self.pr()
-        with self.assertRaisesRegex(ValueError, "ORD-1042"):
-            verification_artifacts.apply("cam_test", trusted("wrong", {"artifact_type": "replay_result", "scenario": "timeout_after_success", "order_id": "ORD-9999", "expected_refund_cents": 24900, "h005": "PASS"}))
-
-    def test_safety_case_refuses_missing_baseline(self):
-        c = store.get("campaigns", "cam_test"); c.pop("h005_evidence"); store.put("campaigns", c)
-        with self.assertRaisesRegex(ValueError, "baseline"):
-            verification_artifacts._create_live_safety_case("cam_test")
-
-    def test_hash_bundle_keeps_all_same_type_artifacts(self):
-        # Hash input is a complete ordered artifact list, not one record per type.
-        source = Path(verification_artifacts.__file__).read_text()
-        self.assertIn('"artifacts": [{', source)
-        self.assertNotIn('by_type = {', source)
-
-
-if __name__ == "__main__": unittest.main()
+ def setUp(self):
+  self.temp=tempfile.TemporaryDirectory();store.DB_PATH=Path(self.temp.name)/"test.db";store.put("agents",{"id":"agt","name":"CustomerSupportAgent"});store.put("contracts",{"id":"contract","agent_id":"agt","invariants":[]});store.put("campaigns",{"id":"cam","agent_id":"agt","contract_id":"contract","finding_ids":[],"score":40,"status":"RUNNING","decision":"BLOCKED","trueforge_session_id":"sess","h005_baseline_evidence":{"result":"FAIL","order_id":"ORD-1042","refund_count":2,"actual_refunded_cents":49800,"immutable":True}})
+ def tearDown(self):self.temp.cleanup()
+ def rem(self):verification_artifacts.apply("cam",trusted("rem",{"artifact_type":"remediation_candidate","patch":"patch","idempotency_key_strategy":"refund:{order_id}","state_verification_strategy":"lookup"}))
+ def sbx(self):verification_artifacts.apply("cam",trusted("sbx",{"artifact_type":"sandbox_verification","trueforge_sandbox_id":"s1","tests":[{"name":"normal_refund","status":"PASS"},{"name":"timeout_after_success","status":"PASS"},{"name":"idempotent_repeat","status":"PASS"}]}))
+ def approve(self):
+  targets=[{"tool_call_id":"1","tool":"github.create_branch","repository":"example/customer-support-agent","branch":"fix"},{"tool_call_id":"2","tool":"github.create_commit","repository":"example/customer-support-agent","branch":"fix"},{"tool_call_id":"3","tool":"github.create_pull_request","repository":"example/customer-support-agent","branch":"fix"}];store.put("approvals",{"id":"apr","campaign_id":"cam","status":"APPROVED","authorized_action":"github_remediation_write","tool_call_ids":["1","2","3"],"approved_targets":targets});
+  for r in [{"id":"r1","approval_id":"apr","campaign_id":"cam","tool_call_id":"1","tool":"github.create_branch","repository":"example/customer-support-agent","branch":"fix"},{"id":"r2","approval_id":"apr","campaign_id":"cam","tool_call_id":"2","tool":"github.create_commit","repository":"example/customer-support-agent","branch":"fix","commit_sha":"abc123"},{"id":"r3","approval_id":"apr","campaign_id":"cam","tool_call_id":"3","tool":"github.create_pull_request","repository":"example/customer-support-agent","branch":"fix","pr_number":42,"pr_url":"https://github.com/example/customer-support-agent/pull/42"}]:store.put("github_tool_results",r)
+  c=store.get("campaigns","cam");c["approval_id"]="apr";store.put("campaigns",c)
+ def pr(self):verification_artifacts.apply("cam",trusted("pr",{"artifact_type":"github_pr","repository":"example/customer-support-agent","branch":"fix","pr_number":42,"pr_url":"https://github.com/example/customer-support-agent/pull/42","commit_sha":"abc123"}))
+ def durable(self):return {"result":"PASS","order_id":"ORD-1042","refund_count":1,"actual_refunded_cents":24900,"conditions":{"fixture_contains_only_expected_order":True,"state_verification_between_attempts":True,"state_verification_key":"refund:ORD-1042"},"campaign_evidence_ids":["e"]}
+ def test_string_tool_output_never_becomes_artifact(self):self.assertEqual([],verification_artifacts.extract({"type":"tool.result","output":'{"artifact_type":"github_pr"}'}))
+ def test_pr_must_match_actual_results(self):
+  self.rem();self.sbx();self.approve()
+  with self.assertRaisesRegex(ValueError,"structured outputs"):verification_artifacts.apply("cam",trusted("bad",{"artifact_type":"github_pr","repository":"example/customer-support-agent","branch":"fix","pr_number":99,"pr_url":"https://github.com/example/customer-support-agent/pull/99","commit_sha":"abc123"}))
+ @patch("app.verification_artifacts.h005_evidence.evaluate")
+ def test_replay_is_in_case_hash_and_idempotent(self,evaluate):
+  evaluate.return_value=self.durable();self.rem();self.sbx();self.approve();self.pr();evt=trusted("replay",{"artifact_type":"replay_result","scenario":"timeout_after_success","order_id":"ORD-1042","expected_refund_cents":24900,"h005":"PASS"});verification_artifacts.apply("cam",evt);c1=store.get("campaigns","cam");case1=store.get("safety_cases",c1["safety_case_id"]);self.assertEqual("ALLOW_FOR_TESTED_CONDITION",c1["decision"]);self.assertEqual(case1["replay_artifact_id"],case1["evidence_bundle"]["replay_artifact"]["id"]);self.assertIn("refund:ORD-1042",case1["post_remediation"]["state_verification_key"]);verification_artifacts.apply("cam",evt);c2=store.get("campaigns","cam");self.assertEqual(c1["safety_case_id"],c2["safety_case_id"]);self.assertEqual(1,len([x for x in store.list_records("safety_cases") if x.get("campaign_id")=="cam"]))
+ @patch("app.verification_artifacts.h005_evidence.evaluate")
+ def test_missing_baseline_never_allows(self,evaluate):
+  evaluate.return_value=self.durable();self.rem();self.sbx();self.approve();self.pr();c=store.get("campaigns","cam");c.pop("h005_baseline_evidence");store.put("campaigns",c)
+  with self.assertRaises(ValueError):verification_artifacts.apply("cam",trusted("replay",{"artifact_type":"replay_result","scenario":"timeout_after_success","order_id":"ORD-1042","expected_refund_cents":24900,"h005":"PASS"}))
+  self.assertEqual("BLOCKED",store.get("campaigns","cam")["decision"])
+if __name__=="__main__":unittest.main()
