@@ -24,7 +24,7 @@ class TrueForgeClient:
         return cls(
             os.getenv("TRUEFORGE_BASE_URL", "http://127.0.0.1:8790").rstrip("/"),
             os.getenv("TRUEFORGE_TOKEN") or None,
-            float(os.getenv("TRUEFORGE_TIMEOUT_SECONDS", "15")),
+            float(os.getenv("TRUEFORGE_REQUEST_TIMEOUT_SECONDS", os.getenv("TRUEFORGE_TIMEOUT_SECONDS", "15"))),
         )
 
     def _request(
@@ -72,10 +72,10 @@ class TrueForgeClient:
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/v1/sessions/{session_id}")
 
-    def submit_task(
+    def submit_input(
         self,
         session_id: str,
-        task: str,
+        input_messages: list[dict[str, Any]],
         *,
         stream: bool = False,
         previous_turn_id: str = "auto",
@@ -84,10 +84,25 @@ class TrueForgeClient:
             "POST",
             f"/api/v1/sessions/{session_id}/turns",
             {
-                "input": [{"content": task, "type": "user.message"}],
+                "input": input_messages,
                 "previous_turn_id": previous_turn_id,
                 "stream": stream,
             },
+        )
+
+    def submit_task(
+        self,
+        session_id: str,
+        task: str,
+        *,
+        stream: bool = False,
+        previous_turn_id: str = "auto",
+    ) -> dict[str, Any]:
+        return self.submit_input(
+            session_id,
+            [{"content": task, "type": "user.message"}],
+            stream=stream,
+            previous_turn_id=previous_turn_id,
         )
 
     def resume_with_approval(
@@ -95,20 +110,25 @@ class TrueForgeClient:
         session_id: str,
         *,
         approved: bool,
+        thread_id: str,
         tool_call_ids: list[str],
         reason: str,
     ) -> dict[str, Any]:
-        # TrueForge human checkpoints are resumed through a new chained turn.
-        # Keep the payload human-readable and auditable; the harness agent is
-        # instructed to act only on the referenced pending tool calls.
-        decision = "APPROVE" if approved else "REJECT"
-        task = (
-            f"Human checkpoint decision: {decision}. "
-            f"Pending tool call ids: {', '.join(tool_call_ids)}. "
-            f"Reason: {reason}. Resume the verification from the pending checkpoint; "
-            "do not repeat already-completed irreversible tool calls."
-        )
-        return self.submit_task(session_id, task, stream=False, previous_turn_id="auto")
+        if not thread_id:
+            raise TrueForgeError("Cannot resolve approval without TrueForge thread_id")
+        if not tool_call_ids:
+            raise TrueForgeError("Cannot resolve approval without pending tool_call_ids")
+        approval = {"status": "allow"} if approved else {"status": "deny", "reason": reason}
+        messages = [
+            {
+                "type": "user.tool_approval",
+                "thread_id": thread_id,
+                "tool_call_id": tool_call_id,
+                "approval": approval,
+            }
+            for tool_call_id in tool_call_ids
+        ]
+        return self.submit_input(session_id, messages, stream=False, previous_turn_id="auto")
 
     def list_session_events(self, session_id: str, limit: int = 100) -> dict[str, Any]:
         return self._request(
