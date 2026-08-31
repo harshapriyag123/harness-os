@@ -2,7 +2,7 @@ import asyncio,json,os
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from . import engine,store,trueforge_runtime,verification_artifacts
+from . import engine,store,trueforge_runtime,verification_artifacts,repository_targets,public_services
 from .integrations import qodo
 from .integrations.trueforge import TrueForgeClient,TrueForgeError
 from .models import AgentCreate,CampaignCreate,Decision,InvariantUpdate
@@ -11,7 +11,7 @@ def _cors_origins():
  configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
  return list(dict.fromkeys(['http://localhost:5173',*configured]))
 
-app=FastAPI(title='Harness OS API',version='1.4.0')
+app=FastAPI(title='Harness OS API',version='1.5.0')
 app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
@@ -32,6 +32,19 @@ def dashboard():return engine.dashboard()
 def create_agent(body:AgentCreate):
  try:return engine.create_agent(body.model_dump())
  except Exception as exc:fail(exc)
+
+@app.post('/api/v1/targets/connect',status_code=201)
+def connect_target(body:AgentCreate):
+ try:return repository_targets.connect_target(body.model_dump())
+ except Exception as exc:fail(exc)
+
+@app.post('/api/v1/targets/{agent_id}/inspect',status_code=201)
+def inspect_target(agent_id:str):
+ try:return repository_targets.start_inspection(agent_id)
+ except Exception as exc:fail(exc)
+
+@app.get('/api/v1/public-services')
+def hosted_services():return public_services.snapshot()
 
 @app.get('/api/v1/agents')
 def agents():return store.list_records('agents')
@@ -70,7 +83,9 @@ def update_invariant(contract_id:str,invariant_id:str,body:InvariantUpdate):
 
 @app.post('/api/v1/campaigns',status_code=201)
 async def create_campaign(body:CampaignCreate):
- try:return trueforge_runtime.start_campaign(body.model_dump())
+ try:
+  target=required('agents',body.agent_id)
+  return repository_targets.start_inspection(body.agent_id,body.model_dump(exclude={'agent_id'})) if not target.get('repository_url','').startswith('fixture://') else trueforge_runtime.start_campaign(body.model_dump())
  except Exception as exc:fail(exc)
 
 @app.get('/api/v1/campaigns')
@@ -129,6 +144,8 @@ def sync_verification_artifacts(cid:str):
 @app.get('/api/v1/campaigns/{cid}/certification-status')
 def certification_status(cid:str,refresh_qodo:bool=True):
  required('campaigns',cid)
+ if required('campaigns',cid).get('campaign_kind')=='GENERIC_REPOSITORY_INSPECTION':
+  c=required('campaigns',cid);return {'campaign_id':cid,'stage':c.get('current_stage'),'next_gate':'repository_inspection','generic':True,'gates':{},'qodo_blocks_replay':False}
  try:return verification_artifacts.certification_status(cid,refresh_qodo=refresh_qodo)
  except Exception as exc:fail(exc)
 
@@ -166,10 +183,12 @@ def integrations():
  except TrueForgeError as exc:
   tf_status='ERROR';tf_detail=str(exc)
  qodo_status=qodo.snapshot()
+ hosted=public_services.snapshot()['services']
+ hosted_by_name={x['name']:x for x in hosted}
  return {'mode':engine.MODE,'pipeline':'TrueForge -> FaultLine MCP -> GitHub MCP -> Qodo Review -> Safety Case','integrations':[
    {'name':'TrueForge','status':tf_status,'detail':tf_detail,'proof':{'capabilities':tf_caps},'href':None},
-   {'name':'Chaos MCP','status':'CONFIGURED','detail':'FaultLine H-005 endpoint is configured through HARNESS_CHAOS_MCP_URL.','proof':{'endpoint':os.getenv('HARNESS_CHAOS_MCP_URL','not configured')},'href':'https://faultline-h005.onrender.com/health'},
-   {'name':'GitHub MCP','status':'TRUEFORGE MANAGED','detail':'Repository reads and approval-gated writes execute through the GitHub MCP attached to the Harness OS TrueForge agent.','proof':{'repository':'harshapriyag123/harness-os'},'href':'https://github.com/harshapriyag123/harness-os'},
+   {'name':'Chaos MCP','status':'CONNECTED' if hosted_by_name.get('FaultLine MCP',{}).get('reachable') else 'UNAVAILABLE','detail':'Public FaultLine H-005 service is probed by the local control plane.','proof':hosted_by_name.get('FaultLine MCP',{}),'href':hosted_by_name.get('FaultLine MCP',{}).get('url')},
+   {'name':'GitHub MCP','status':'TRUEFORGE MANAGED','detail':'Repository reads and approval-gated writes execute through the GitHub MCP attached to the Harness OS TrueForge agent.','proof':{'repository':'selected per target'},'href':'https://github.com/harshapriyag123/harness-os'},
    qodo_status,
    {'name':'Safety Case','status':'HARNESS OS','detail':'Normalized runtime evidence, approvals, Qodo review evidence, replay evidence and release verdicts are persisted by Harness OS.','proof':{'cases':len(store.list_records('safety_cases'))},'href':None},
-  ]}
+  ],'public_services':hosted}
