@@ -2,7 +2,7 @@ import asyncio,json,os
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from . import engine,store,trueforge_runtime,verification_artifacts,repository_targets,public_services
+from . import engine,store,trueforge_runtime,verification_artifacts,repository_targets,public_services,operator_control
 from .integrations import qodo
 from .integrations.trueforge import TrueForgeClient,TrueForgeError
 from .models import AgentCreate,CampaignCreate,Decision,InvariantUpdate
@@ -11,7 +11,7 @@ def _cors_origins():
  configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
  return list(dict.fromkeys(['http://localhost:5173',*configured]))
 
-app=FastAPI(title='Harness OS API',version='1.5.0')
+app=FastAPI(title='Harness OS API',version='1.6.0')
 app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
@@ -27,6 +27,13 @@ def health():return {'status':'ok','mode':engine.MODE}
 
 @app.get('/api/v1/dashboard')
 def dashboard():return engine.dashboard()
+
+@app.get('/api/v1/operator-snapshot')
+def operator_snapshot(campaign_id:str|None=None,refresh_qodo:bool=False):
+ return operator_control.snapshot(campaign_id,refresh_qodo=refresh_qodo)
+
+@app.get('/api/v1/trueforge/status')
+def trueforge_status():return operator_control.trueforge_status()
 
 @app.post('/api/v1/agents',status_code=201)
 def create_agent(body:AgentCreate):
@@ -177,16 +184,12 @@ def create_safety_case(cid:str):
 
 @app.get('/api/v1/integrations')
 def integrations():
- tf_caps=None
- try:
-  tf_caps=TrueForgeClient.from_env().capabilities();tf_status='CONNECTED';tf_detail='TrueForge HTTP API reachable; native sessions, events and approvals enabled.'
- except TrueForgeError as exc:
-  tf_status='ERROR';tf_detail=str(exc)
+ tf=operator_control.trueforge_status();tf_status='CONNECTED' if tf.get('status')=='CONNECTED' else tf.get('status','ERROR');tf_detail=tf.get('detail','TrueForge status unavailable.')
  qodo_status=qodo.snapshot()
  hosted=public_services.snapshot()['services']
  hosted_by_name={x['name']:x for x in hosted}
  return {'mode':engine.MODE,'pipeline':'TrueForge -> FaultLine MCP -> GitHub MCP -> Qodo Review -> Safety Case','integrations':[
-   {'name':'TrueForge','status':tf_status,'detail':tf_detail,'proof':{'capabilities':tf_caps},'href':None},
+   {'name':'TrueForge','status':tf_status,'detail':tf_detail,'proof':tf,'href':None},
    {'name':'Chaos MCP','status':'CONNECTED' if hosted_by_name.get('FaultLine MCP',{}).get('reachable') else 'UNAVAILABLE','detail':'Public FaultLine H-005 service is probed by the local control plane.','proof':hosted_by_name.get('FaultLine MCP',{}),'href':hosted_by_name.get('FaultLine MCP',{}).get('url')},
    {'name':'GitHub MCP','status':'TRUEFORGE MANAGED','detail':'Repository reads and approval-gated writes execute through the GitHub MCP attached to the Harness OS TrueForge agent.','proof':{'repository':'selected per target'},'href':'https://github.com/harshapriyag123/harness-os'},
    qodo_status,
