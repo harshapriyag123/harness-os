@@ -1,35 +1,145 @@
+name: harness-os
+
 services:
-  api:
-    build: ./backend
-    ports: ["8080:8080"]
+  trueforge:
+    build:
+      context: ./docker/trueforge
+      args:
+        TRUEFORGE_VERSION: ${TRUEFORGE_VERSION:-latest}
+    ports:
+      - "8791:8790"
     environment:
-      HARNESS_OS_MODE: ${HARNESS_OS_MODE:-demo}
-      HARNESS_OS_DB: /data/harness_os.db
-      HARNESS_OS_CORS_ORIGINS: ${HARNESS_OS_CORS_ORIGINS:-http://localhost:5173}
-      TRUEFORGE_BASE_URL: ${TRUEFORGE_BASE_URL:-http://host.docker.internal:8790}
-      TRUEFORGE_TOKEN: ${TRUEFORGE_TOKEN:-}
-      TRUEFORGE_REQUEST_TIMEOUT_SECONDS: ${TRUEFORGE_REQUEST_TIMEOUT_SECONDS:-60}
-      TRUEFORGE_PROBE_TIMEOUT_SECONDS: ${TRUEFORGE_PROBE_TIMEOUT_SECONDS:-4}
-      HARNESS_CHAOS_MCP_URL: ${HARNESS_CHAOS_MCP_URL:-http://mcp-chaos:8940/mcp}
-      PUBLIC_REFUND_FIXTURE_URL: ${PUBLIC_REFUND_FIXTURE_URL:-http://customer-fixture:8950/health}
-      PUBLIC_FAULTLINE_HEALTH_URL: ${PUBLIC_FAULTLINE_HEALTH_URL:-http://mcp-chaos:8940/health}
-    volumes: ["harness-data:/data"]
-  mcp-chaos:
-    image: node:22-alpine
-    working_dir: /app
-    volumes: ["./mcp-chaos:/app"]
-    command: sh -c "npm install && npm start"
-    environment:
-      FIXTURE_BASE_URL: http://customer-fixture:8950
-    depends_on: [customer-fixture]
-    ports: ["8940:8940"]
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8790
+      PUBLIC_BASE_URL: http://localhost:8791
+      STANDALONE: "true"
+      SQLITE_PATH: /data/trueforge.db
+    volumes:
+      - trueforge-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8790/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
   customer-fixture:
     build: ./backend
     command: uvicorn app.fixture_service:app --host 0.0.0.0 --port 8950
     environment:
       FIXTURE_DB: /data/customer_fixture.db
-    volumes: ["fixture-data:/data"]
-    ports: ["8950:8950"]
+      FIXTURE_ORDER_ID: ORD-1042
+      FIXTURE_REFUND_CENTS: "24900"
+    volumes:
+      - fixture-data:/data
+    ports:
+      - "8950:8950"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8950/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  mcp-chaos:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./mcp-chaos:/app
+      - mcp-node-modules:/app/node_modules
+    command: sh -c "npm install && npm start"
+    environment:
+      FIXTURE_BASE_URL: http://customer-fixture:8950
+      PORT: 8940
+    depends_on:
+      customer-fixture:
+        condition: service_healthy
+    ports:
+      - "8940:8940"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8940/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    environment:
+      HARNESS_OS_MODE: live
+      HARNESS_OS_DB: /data/harness_os.db
+      HARNESS_OS_CORS_ORIGINS: http://localhost:5173
+      TRUEFORGE_API_BASE_URL: http://trueforge:8790
+      TRUEFORGE_AGENT_NAME: harness-os
+      TRUEFORGE_REQUEST_TIMEOUT_SECONDS: "60"
+      TRUEFORGE_PROBE_TIMEOUT_SECONDS: "8"
+      HARNESS_CHAOS_MCP_URL: http://mcp-chaos:8940/mcp
+      PUBLIC_REFUND_FIXTURE_URL: http://customer-fixture:8950/health
+      PUBLIC_FAULTLINE_HEALTH_URL: http://mcp-chaos:8940/health
+      FIXTURE_BASE_URL: http://customer-fixture:8950
+      GITHUB_TARGET_REPOSITORY: harshapriyag123/harness-os
+      GITHUB_DEFAULT_BRANCH: main
+    volumes:
+      - harness-data:/data
+    depends_on:
+      trueforge:
+        condition: service_healthy
+      customer-fixture:
+        condition: service_healthy
+      mcp-chaos:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
+  trueforge-data:
   harness-data:
   fixture-data:
+  mcp-node-modules:
