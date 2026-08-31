@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Harness OS
 
 **A safety verification control plane for AI agent harnesses.**
