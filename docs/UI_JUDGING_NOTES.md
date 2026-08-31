@@ -1,17 +1,41 @@
 # Best UI interaction contract
 
-Harness OS treats the hackathon UI requirement as a runtime interaction contract, not a screenshot treatment.
+Harness OS is an operator console, not a static hackathon dashboard.
 
-The running product must always answer three questions for a new operator:
+A stranger should be able to answer four questions without reading the README:
 
-1. **What is the agent doing?** Show the current evidence gate and TrueForge session state.
-2. **What is it waiting on?** Make blocked states explicit, especially human approval and Qodo review.
-3. **What did it do?** Show a compact persisted causal trace with links to independent evidence.
+1. **What target am I operating on?**
+2. **What is the agent doing now?**
+3. **What is it waiting on?**
+4. **What did it already do?**
 
-Before any irreversible repository mutation, the operator console displays the exact bound GitHub MCP calls and keeps the TrueForge session paused. Approval is intentionally two-step: review the scope, then confirm. Reject is available at the same point.
+## Repository workspace
 
-The certification chain stays narrow and understandable:
+The local UI accepts any public GitHub repository URL. Repository names are derived from the URL by default, and every target is registered independently with branch, status and risk state. A generic repository is not mislabeled as `CustomerSupportAgent` and does not inherit the H-005 refund scenario.
+
+Generic targets are inspected by TrueForge through GitHub MCP. Harness OS asks TrueForge to identify actual agent surfaces, MCP tools, generated-code execution, retries, data boundaries and irreversible actions. If a repository is not an AI agent, the run must say `NOT_APPLICABLE`/`INCONCLUSIVE` rather than forcing the refund scenario.
+
+The golden `fixture://customer-support-agent` remains the deterministic H-005 demo path.
+
+## Public runtime bridge
+
+The local control plane probes the hosted services used by the live demo and exposes them inside the product:
+
+- Refund Fixture health
+- FaultLine H-005 health
+
+The UI shows reachability and observed latency. These states come from backend probes, not static green badges.
+
+## Approval-before-action rule
+
+When TrueForge emits a native pending approval for consequential GitHub writes, the operator surface must show the exact tool, repository, branch and tool-call ID before execution. The user must explicitly review and confirm approval. Reject remains available. The frontend never simulates approval; the final action calls the Harness OS backend, which resumes the native TrueForge approval.
+
+## Certification chain
 
 `TrueForge sandbox -> human approval -> GitHub MCP PR -> Qodo review -> exact replay -> Safety Case`
 
-The UI must never claim a sandbox pass, approval, Qodo review, replay pass, or Safety Case unless the backend has persisted the corresponding evidence.
+The full H-005 certification chain applies only to the deterministic H-005 target. Generic repositories use repository inspection unless the runtime discovers a matching evidence-backed scenario.
+
+## Evidence integrity
+
+UI status is derived from persisted Harness OS/TrueForge/Qodo evidence. No sandbox, approval, Qodo, replay, public-service or Safety Case state may be manufactured to make the demo appear complete.
