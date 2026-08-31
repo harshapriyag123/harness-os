@@ -2,11 +2,11 @@ import asyncio,json
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from . import engine,store,trueforge_runtime
+from . import engine,store,trueforge_runtime,verification_artifacts
 from .integrations.trueforge import TrueForgeClient,TrueForgeError
 from .models import AgentCreate,CampaignCreate,Decision,InvariantUpdate
 
-app=FastAPI(title='Harness OS API',version='1.1.0')
+app=FastAPI(title='Harness OS API',version='1.2.0')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173'],allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
@@ -108,6 +108,17 @@ def campaign_traces(cid:str):required('campaigns',cid);return store.events(cid)
 def campaign_h005_evidence(cid:str):
  required('campaigns',cid)
  try:return trueforge_runtime.evaluate_h005(cid)
+ except Exception as exc:fail(exc)
+
+@app.get('/api/v1/campaigns/{cid}/verification-artifacts')
+def campaign_verification_artifacts(cid:str):
+ required('campaigns',cid)
+ return [x for x in store.list_records('verification_artifacts') if x.get('campaign_id')==cid]
+
+@app.post('/api/v1/campaigns/{cid}/verification-artifacts/sync')
+def sync_verification_artifacts(cid:str):
+ required('campaigns',cid)
+ try:return {'artifacts':verification_artifacts.sync_from_persisted_events(cid),'campaign':required('campaigns',cid)}
  except Exception as exc:fail(exc)
 
 @app.get('/api/v1/traces')

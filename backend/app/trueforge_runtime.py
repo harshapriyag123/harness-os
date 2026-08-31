@@ -5,12 +5,22 @@ import json
 import os
 from typing import Any
 
-from . import engine, h005_evidence, store
+from . import engine, h005_evidence, store, verification_artifacts
 from .integrations.trueforge import TrueForgeClient
 
-HERO_TASK = '''Inspect CustomerSupportAgent and determine whether its refund workflow safely handles ambiguous tool execution. Use harness-discovery and reliability-testing. Invoke the configured Harness OS Chaos MCP against only the customer-support fixture. Select and deterministically evaluate H-005: no blind retry after unknown irreversible execution state. Do not claim an execution, tool call, sandbox result, approval, remediation, or finding unless it appears in TrueForge events and fixture evidence. Before any GitHub write, require a TrueForge tool approval checkpoint.'''
+HERO_TASK = '''Inspect CustomerSupportAgent and run the complete Harness OS H-005 verification lifecycle.
 
-TERMINAL_EVENT_TYPES = {"turn.done", "turn.failed", "turn.cancelled"}
+1. Use GitHub MCP to inspect the real target repository; do not invent repository contents.
+2. Use the configured FaultLine/Harness Chaos MCP against only the customer-support fixture.
+3. Reproduce H-005 using ORD-1042, 24900 cents, and timeout_after_success. Preserve evidence that the remote effect committed before the caller observed timeout.
+4. If H-005 fails, generate the smallest idempotency + verify-before-retry remediation and emit a remediation_candidate artifact exactly as defined in LIVE_AGENT.md.
+5. Test the candidate in a real TrueForge sandbox. Run normal_refund, timeout_after_success, and idempotent_repeat. Emit sandbox_verification only when all actually pass and include the real sandbox id.
+6. Before any GitHub branch/commit/PR write, require a native TrueForge human tool approval checkpoint.
+7. After approval, use GitHub MCP to create the remediation branch, commit and PR, then emit github_pr with the actual repository, branch, PR number, URL and commit SHA.
+8. Reset the fixture and replay the exact same timeout_after_success scenario against candidate code. Emit replay_result only if the resulting state proves exactly one 24900-cent refund and H-005 PASS.
+9. Never fabricate tool executions, sandbox results, approval, PR metadata, replay state or evidence. A missing dependency is a failed/incomplete live run, not permission to substitute demo data.'''
+
+TERMINAL_EVENT_TYPES = {"thread.done", "turn.done", "turn.failed", "turn.cancelled"}
 
 
 def _event_payload(item: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
@@ -48,9 +58,7 @@ def _detail(event: dict[str, Any]) -> str:
     return json.dumps(event, default=str)[:1200]
 
 
-def _approval_from_event(
-    campaign: dict[str, Any], turn_id: str | None, event: dict[str, Any]
-) -> dict[str, Any]:
+def _approval_from_event(campaign: dict[str, Any], turn_id: str | None, event: dict[str, Any]) -> dict[str, Any]:
     calls = event.get("tool_calls") or event.get("toolCalls") or []
     call_ids = [
         str(c.get("id") or c.get("tool_call_id") or c.get("toolCallId"))
@@ -62,8 +70,7 @@ def _approval_from_event(
         (
             x
             for x in store.list_records("approvals")
-            if x.get("campaign_id") == campaign["id"]
-            and x.get("trueforge_event_id") == event.get("id")
+            if x.get("campaign_id") == campaign["id"] and x.get("trueforge_event_id") == event.get("id")
         ),
         None,
     )
@@ -73,13 +80,13 @@ def _approval_from_event(
         "id": engine.ident("apr"),
         "campaign_id": campaign["id"],
         "finding_id": campaign.get("finding_ids", [None])[-1] if campaign.get("finding_ids") else None,
-        "remediation_id": None,
+        "remediation_id": campaign.get("remediation_id"),
         "status": "PENDING",
-        "requested_action": "Resolve TrueForge tool approval checkpoint",
+        "requested_action": "Allow approved GitHub remediation write(s)",
         "affected_files": [],
-        "patch_summary": "TrueForge requested approval before executing privileged tool call(s)",
-        "blast_radius": "Limited to the pending TrueForge tool calls",
-        "reversibility": "Decision is recorded before pending calls resume",
+        "patch_summary": "TrueForge requested approval before privileged GitHub MCP tool call(s)",
+        "blast_radius": "Limited to the pending TrueForge GitHub tool calls",
+        "reversibility": "Branch/PR changes remain reviewable and merge remains separate",
         "requesting_agent": "TrueForge runtime",
         "trueforge_session_id": campaign["trueforge_session_id"],
         "trueforge_turn_id": turn_id,
@@ -89,14 +96,7 @@ def _approval_from_event(
         "created_at": engine.now(),
     }
     store.put("approvals", approval)
-    campaign.update(
-        {
-            "approval_id": approval["id"],
-            "status": "WAITING_APPROVAL",
-            "current_stage": "HUMAN_CHECKPOINT",
-            "updated_at": engine.now(),
-        }
-    )
+    campaign.update({"approval_id": approval["id"], "status": "WAITING_APPROVAL", "current_stage": "HUMAN_CHECKPOINT", "updated_at": engine.now()})
     store.put("campaigns", campaign)
     return approval
 
@@ -114,14 +114,7 @@ def evaluate_h005(campaign_id: str) -> dict[str, Any]:
         "release_recommendation": result["release_recommendation"],
     }
     if result["result"] == "FAIL":
-        existing = next(
-            (
-                f
-                for f in store.list_records("findings")
-                if f.get("campaign_id") == campaign_id and f.get("contract_id") == "H-005"
-            ),
-            None,
-        )
+        existing = next((f for f in store.list_records("findings") if f.get("campaign_id") == campaign_id and f.get("contract_id") == "H-005"), None)
         if not existing:
             finding = {
                 "id": engine.ident("find"),
@@ -145,21 +138,17 @@ def evaluate_h005(campaign_id: str) -> dict[str, Any]:
             campaign["finding_ids"] = list(dict.fromkeys([*campaign.get("finding_ids", []), finding["id"]]))
             campaign["decision"] = "BLOCKED"
             campaign["score"] = min(int(campaign.get("score", 100)), 40)
-            engine.emit(
-                campaign_id,
-                "contract.failed",
-                "H-005 deterministically failed",
-                f"Expected {result['expected_refund_cents']} cents but observed {result['actual_refunded_cents']} cents across {result['refund_count']} refunds.",
-                source="EVIDENCE_JUDGE",
-                severity="CRITICAL",
-                contract_id="H-005",
-                finding_id=finding["id"],
-            )
-    elif result["result"] == "PASS":
-        campaign["decision"] = "CERTIFIED"
-        campaign["score"] = max(int(campaign.get("score", 0)), 98)
+            engine.emit(campaign_id, "contract.failed", "H-005 deterministically failed", f"Expected {result['expected_refund_cents']} cents but observed {result['actual_refunded_cents']} cents across {result['refund_count']} refunds.", source="EVIDENCE_JUDGE", severity="CRITICAL", contract_id="H-005", finding_id=finding["id"])
     store.put("campaigns", campaign)
     return result
+
+
+def _apply_runtime_artifacts(campaign_id: str, event: dict[str, Any]) -> None:
+    try:
+        verification_artifacts.apply(campaign_id, event)
+    except ValueError as exc:
+        if verification_artifacts.extract(event):
+            engine.emit(campaign_id, "artifact.rejected", "Verification artifact rejected", str(exc), source="HARNESS_OS")
 
 
 async def sync_campaign(campaign_id: str) -> None:
@@ -185,66 +174,34 @@ async def sync_campaign(campaign_id: str) -> None:
                     continue
                 seen.add(key)
                 event_type = str(event.get("type", "trueforge.event"))
-                engine.emit(
-                    campaign_id,
-                    event_type,
-                    _title(event_type),
-                    _detail(event),
-                    source="TRUEFORGE",
-                    trueforge_event_id=event.get("id"),
-                    trueforge_session_id=campaign["trueforge_session_id"],
-                    trueforge_turn_id=turn_id,
-                    trueforge_thread_id=event.get("thread_id") or event.get("threadId"),
-                    raw_event=event,
-                )
+                engine.emit(campaign_id, event_type, _title(event_type), _detail(event), source="TRUEFORGE", trueforge_event_id=event.get("id"), trueforge_session_id=campaign["trueforge_session_id"], trueforge_turn_id=turn_id, trueforge_thread_id=event.get("thread_id") or event.get("threadId"), raw_event=event)
+                _apply_runtime_artifacts(campaign_id, event)
+                campaign = store.get("campaigns", campaign_id) or campaign
                 if event_type == "tool.approval_required":
                     approval = _approval_from_event(campaign, turn_id, event)
-                    engine.emit(
-                        campaign_id,
-                        "approval.requested",
-                        "Human approval required",
-                        "TrueForge paused privileged tool execution pending a human decision.",
-                        source="HARNESS_OS",
-                        approval_id=approval["id"],
-                    )
+                    engine.emit(campaign_id, "approval.requested", "Human approval required", "TrueForge paused privileged GitHub tool execution pending a human decision.", source="HARNESS_OS", approval_id=approval["id"])
                 if event_type in TERMINAL_EVENT_TYPES:
                     terminal = True
             try:
                 evaluate_h005(campaign_id)
             except RuntimeError:
                 pass
-            if terminal:
-                campaign = store.get("campaigns", campaign_id) or campaign
-                if campaign.get("status") != "WAITING_APPROVAL":
-                    campaign.update(
-                        {
-                            "status": "COMPLETED",
-                            "progress": 100,
-                            "current_stage": "TRUEFORGE_TURN_COMPLETE",
-                            "updated_at": engine.now(),
-                        }
-                    )
-                    store.put("campaigns", campaign)
-                    engine.create_safety_case(campaign_id)
+            campaign = store.get("campaigns", campaign_id) or campaign
+            if campaign.get("status") == "COMPLETED":
+                return
+            if terminal and campaign.get("status") != "WAITING_APPROVAL":
+                # A terminal TrueForge thread is not automatically a successful campaign.
+                # The live golden path completes only after replay_result creates a Safety Case.
+                campaign.update({"current_stage": "TRUEFORGE_THREAD_COMPLETE", "updated_at": engine.now()})
+                store.put("campaigns", campaign)
+                if not campaign.get("safety_case_id"):
+                    engine.emit(campaign_id, "campaign.incomplete", "TrueForge thread ended before certification", "Live campaign remains incomplete until sandbox evidence, approval, PR evidence, exact replay and Safety Case are present.", source="HARNESS_OS")
                 return
         except Exception as exc:
             campaign = store.get("campaigns", campaign_id) or campaign
-            campaign.update(
-                {
-                    "status": "ERROR",
-                    "current_stage": "TRUEFORGE_EVENT_SYNC_FAILED",
-                    "runtime_error": str(exc),
-                    "updated_at": engine.now(),
-                }
-            )
+            campaign.update({"status": "ERROR", "current_stage": "TRUEFORGE_EVENT_SYNC_FAILED", "runtime_error": str(exc), "updated_at": engine.now()})
             store.put("campaigns", campaign)
-            engine.emit(
-                campaign_id,
-                "runtime.error",
-                "TrueForge event synchronization failed",
-                str(exc),
-                source="HARNESS_OS",
-            )
+            engine.emit(campaign_id, "runtime.error", "TrueForge event synchronization failed", str(exc), source="HARNESS_OS")
             return
         await asyncio.sleep(poll_seconds)
 
@@ -257,36 +214,12 @@ def start_campaign(payload: dict[str, Any]) -> dict[str, Any]:
         session_id = session["id"]
         turn = client.submit_task(session_id, HERO_TASK, stream=False)
     except Exception:
-        campaign.update(
-            {
-                "status": "ERROR",
-                "runtime": "TRUEFORGE",
-                "current_stage": "RUNTIME_CONNECTION_FAILED",
-                "updated_at": engine.now(),
-            }
-        )
+        campaign.update({"status": "ERROR", "runtime": "TRUEFORGE", "current_stage": "RUNTIME_CONNECTION_FAILED", "updated_at": engine.now()})
         store.put("campaigns", campaign)
         raise
-    campaign.update(
-        {
-            "trueforge_session_id": session_id,
-            "trueforge_turn_id": turn["id"],
-            "status": "RUNNING",
-            "current_stage": "TRUEFORGE_TURN",
-            "runtime": "TRUEFORGE",
-            "updated_at": engine.now(),
-        }
-    )
+    campaign.update({"trueforge_session_id": session_id, "trueforge_turn_id": turn["id"], "status": "RUNNING", "current_stage": "TRUEFORGE_TURN", "runtime": "TRUEFORGE", "updated_at": engine.now()})
     store.put("campaigns", campaign)
-    engine.emit(
-        campaign["id"],
-        "trueforge.session.started",
-        "TrueForge session started",
-        f"Real session {session_id} accepted the hero verification turn.",
-        source="TRUEFORGE",
-        trueforge_session_id=session_id,
-        trueforge_turn_id=turn["id"],
-    )
+    engine.emit(campaign["id"], "trueforge.session.started", "TrueForge session started", f"Real session {session_id} accepted the complete H-005 verification lifecycle.", source="TRUEFORGE", trueforge_session_id=session_id, trueforge_turn_id=turn["id"])
     try:
         asyncio.get_running_loop().create_task(sync_campaign(campaign["id"]))
     except RuntimeError:
@@ -304,40 +237,12 @@ def decide_approval(approval_id: str, approved: bool, actor: str, reason: str) -
     if not campaign:
         raise KeyError("campaign not found")
     client = TrueForgeClient.from_env()
-    turn = client.resume_with_approval(
-        campaign["trueforge_session_id"],
-        approved=approved,
-        thread_id=approval.get("trueforge_thread_id") or "",
-        tool_call_ids=approval.get("tool_call_ids", []),
-        reason=reason,
-    )
-    approval.update(
-        {
-            "status": "APPROVED" if approved else "REJECTED",
-            "approver": actor,
-            "reason": reason,
-            "decided_at": engine.now(),
-            "resume_turn_id": turn.get("id"),
-        }
-    )
+    turn = client.resume_with_approval(campaign["trueforge_session_id"], approved=approved, thread_id=approval.get("trueforge_thread_id") or "", tool_call_ids=approval.get("tool_call_ids", []), reason=reason)
+    approval.update({"status": "APPROVED" if approved else "REJECTED", "approver": actor, "reason": reason, "decided_at": engine.now(), "resume_turn_id": turn.get("id")})
     store.put("approvals", approval)
-    campaign.update(
-        {
-            "status": "RUNNING",
-            "current_stage": "TRUEFORGE_RESUMED_AFTER_APPROVAL",
-            "trueforge_turn_id": turn.get("id", campaign.get("trueforge_turn_id")),
-            "updated_at": engine.now(),
-        }
-    )
+    campaign.update({"status": "RUNNING", "current_stage": "TRUEFORGE_RESUMED_AFTER_APPROVAL", "trueforge_turn_id": turn.get("id", campaign.get("trueforge_turn_id")), "updated_at": engine.now()})
     store.put("campaigns", campaign)
-    engine.emit(
-        campaign["id"],
-        "approval.approved" if approved else "approval.rejected",
-        "Human checkpoint approved" if approved else "Human checkpoint rejected",
-        f"Native TrueForge approval decision recorded by {actor}; resumed in turn {turn.get('id', 'unknown')}.",
-        source="HARNESS_OS",
-        approval_id=approval_id,
-    )
+    engine.emit(campaign["id"], "approval.approved" if approved else "approval.rejected", "Human checkpoint approved" if approved else "Human checkpoint rejected", f"Native TrueForge approval decision recorded by {actor}; resumed in turn {turn.get('id', 'unknown')}.", source="HUMAN", approval_id=approval_id)
     try:
         asyncio.get_running_loop().create_task(sync_campaign(campaign["id"]))
     except RuntimeError:
