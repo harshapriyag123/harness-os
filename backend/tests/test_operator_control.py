@@ -6,9 +6,8 @@ from app.integrations.trueforge import TrueForgeError
 
 
 class FakeClient:
-    base_url='https://trueforge.example'
-    token='secret'
-    timeout=60
+    def __init__(self,base_url='https://trueforge.example',token='secret',timeout=60):
+        self.base_url=base_url;self.token=token;self.timeout=timeout
 
     @classmethod
     def from_env(cls):
