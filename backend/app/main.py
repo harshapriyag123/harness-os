@@ -11,7 +11,7 @@ def _cors_origins():
  configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
  return list(dict.fromkeys(['http://localhost:5173',*configured]))
 
-app=FastAPI(title='Harness OS API',version='1.7.0')
+app=FastAPI(title='Harness OS API',version='1.8.0')
 app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
@@ -27,7 +27,7 @@ def health():return {'status':'ok','mode':engine.MODE}
 @app.get('/api/v1/dashboard')
 def dashboard():return engine.dashboard()
 @app.get('/api/v1/operator-snapshot')
-def operator_snapshot(campaign_id:str|None=None,agent_id:str|None=None,refresh_qodo:bool=False):return operator_control.snapshot(campaign_id,refresh_qodo=refresh_qodo,agent_id=agent_id)
+def operator_snapshot(campaign_id:str|None=None,agent_id:str|None=None):return operator_control.snapshot(campaign_id,refresh_qodo=False,agent_id=agent_id)
 @app.get('/api/v1/trueforge/status')
 def trueforge_status():return operator_control.trueforge_status()
 @app.post('/api/v1/agents',status_code=201)
@@ -122,11 +122,17 @@ def sync_verification_artifacts(cid:str):
  try:return {'artifacts':verification_artifacts.sync_from_persisted_events(cid),'campaign':required('campaigns',cid)}
  except Exception as exc:fail(exc)
 @app.get('/api/v1/campaigns/{cid}/certification-status')
-def certification_status(cid:str,refresh_qodo:bool=False):
+def certification_status(cid:str):
  c=required('campaigns',cid)
  if c.get('campaign_kind')=='GENERIC_REPOSITORY_INSPECTION':
   return {'campaign_id':cid,'stage':c.get('current_stage'),'next_gate':'repository_inspection' if c.get('status') not in {'COMPLETED','ERROR','CANCELLED'} else 'complete','generic':True,'gates':{},'qodo_blocks_replay':False}
- try:return verification_artifacts.certification_status(cid,refresh_qodo=refresh_qodo)
+ try:return verification_artifacts.certification_status(cid,refresh_qodo=False)
+ except Exception as exc:fail(exc)
+@app.post('/api/v1/campaigns/{cid}/qodo-refresh')
+def refresh_qodo(cid:str):
+ c=required('campaigns',cid)
+ if c.get('campaign_kind')=='GENERIC_REPOSITORY_INSPECTION':raise HTTPException(409,detail={'code':'NOT_APPLICABLE','message':'Qodo certification gate is not part of a generic repository inspection.'})
+ try:return verification_artifacts._qodo_gate(c,refresh=True)
  except Exception as exc:fail(exc)
 @app.get('/api/v1/traces')
 def traces(campaign_id:str|None=None):return store.events(campaign_id) if campaign_id else [e for c in store.list_records('campaigns') for e in store.events(c['id'])]
