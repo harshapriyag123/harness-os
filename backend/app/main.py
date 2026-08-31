@@ -1,13 +1,20 @@
-import asyncio,json
+import asyncio,json,os
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from . import engine,store,trueforge_runtime,verification_artifacts
+from .integrations import qodo
 from .integrations.trueforge import TrueForgeClient,TrueForgeError
 from .models import AgentCreate,CampaignCreate,Decision,InvariantUpdate
 
-app=FastAPI(title='Harness OS API',version='1.2.0')
-app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173'],allow_methods=['*'],allow_headers=['*'])
+
+def _cors_origins():
+ configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
+ return list(dict.fromkeys(['http://localhost:5173',*configured]))
+
+
+app=FastAPI(title='Harness OS API',version='1.3.0')
+app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
  item=store.get(kind,item_id)
@@ -149,8 +156,20 @@ def create_safety_case(cid:str):
 
 @app.get('/api/v1/integrations')
 def integrations():
+ tf_caps=None
  try:
-  TrueForgeClient.from_env().capabilities();tf_status='CONNECTED';tf_detail='TrueForge HTTP API reachable; native sessions/events/approvals enabled'
+  tf_caps=TrueForgeClient.from_env().capabilities();tf_status='CONNECTED';tf_detail='TrueForge HTTP API reachable; native sessions, events and approvals enabled.'
  except TrueForgeError as exc:
   tf_status='ERROR';tf_detail=str(exc)
- return {'mode':engine.MODE,'integrations':[{'name':'TrueForge','status':tf_status,'detail':tf_detail},{'name':'GitHub MCP','status':'TRUEFORGE MANAGED','detail':'Configure GitHub MCP in the Harness OS TrueForge agent; repository writes must be approval-gated'},{'name':'Chaos MCP','status':'CONFIGURED','detail':'Fixture-only FaultLine endpoint from HARNESS_CHAOS_MCP_URL'},{'name':'Model Provider','status':'TRUEFORGE MANAGED','detail':'Configure OpenAI/model provider inside TrueForge'}]}
+ qodo_status=qodo.snapshot()
+ return {
+  'mode':engine.MODE,
+  'pipeline':'TrueForge -> FaultLine MCP -> GitHub MCP -> Qodo Review -> Safety Case',
+  'integrations':[
+   {'name':'TrueForge','status':tf_status,'detail':tf_detail,'proof':{'capabilities':tf_caps},'href':None},
+   {'name':'Chaos MCP','status':'CONFIGURED','detail':'FaultLine H-005 endpoint is configured through HARNESS_CHAOS_MCP_URL.','proof':{'endpoint':os.getenv('HARNESS_CHAOS_MCP_URL','not configured')},'href':'https://faultline-h005.onrender.com/health'},
+   {'name':'GitHub MCP','status':'TRUEFORGE MANAGED','detail':'Repository reads and approval-gated writes execute through the GitHub MCP attached to the Harness OS TrueForge agent.','proof':{'repository':'harshapriyag123/harness-os'},'href':'https://github.com/harshapriyag123/harness-os'},
+   qodo_status,
+   {'name':'Safety Case','status':'HARNESS OS','detail':'Normalized runtime evidence, approvals, replay evidence and release verdicts are persisted by Harness OS.','proof':{'cases':len(store.list_records('safety_cases'))},'href':None},
+  ]
+ }

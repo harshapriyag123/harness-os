@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Harness OS — autonomous pre-deployment safety verification for AI agents."
+      content="Harness OS — autonomous pre-deployment safety verification for AI agents, with live TrueForge execution and Qodo review evidence."
     />
-    <title>Harness OS — AI Agent Safety Verification</title>
+    <title>Harness OS — TrueForge + Qodo Agent Safety Verification</title>
     <style>
       #judge-links {
         position: relative;
@@ -79,12 +79,14 @@
       <div class="judge-title"><i></i>Judge Quick Links</div>
       <nav>
         <a href="https://github.com/harshapriyag123/harness-os" target="_blank" rel="noreferrer">Source Code</a>
-        <a class="evidence" href="https://github.com/harshapriyag123/harness-os/pull/5" target="_blank" rel="noreferrer">Qodo Evidence</a>
-        <a href="https://harness-os.onrender.com/health" target="_blank" rel="noreferrer">Refund Fixture Health</a>
-        <a href="https://faultline-h005.onrender.com/health" target="_blank" rel="noreferrer">FaultLine Health</a>
+        <a class="evidence" href="https://github.com/harshapriyag123/harness-os/pull/5" target="_blank" rel="noreferrer">Qodo Hardening</a>
+        <a href="https://harness-os.onrender.com/health" target="_blank" rel="noreferrer">Refund Fixture</a>
+        <a href="https://faultline-h005.onrender.com/health" target="_blank" rel="noreferrer">FaultLine</a>
       </nav>
     </div>
+    <div id="judge-live-integrations" aria-live="polite"></div>
     <div id="root"></div>
+    <script type="module" src="/src/judge-integrations.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
