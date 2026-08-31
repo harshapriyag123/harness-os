@@ -15,6 +15,8 @@ The local UI accepts any public GitHub repository URL. Repository names are deri
 
 Generic targets are inspected by TrueForge through GitHub MCP. Harness OS asks TrueForge to identify actual agent surfaces, MCP tools, generated-code execution, retries, data boundaries and irreversible actions. If a repository is not an AI agent, the run must say `NOT_APPLICABLE`/`INCONCLUSIVE` rather than forcing the refund scenario.
 
+The golden `fixture://customer-support-agent` remains the deterministic H-005 demo path.
+
 ## Public runtime bridge
 
 The local control plane probes the hosted services used by the live demo and exposes them inside the product:
@@ -31,6 +33,8 @@ When TrueForge emits a native pending approval for consequential GitHub writes, 
 ## Certification chain
 
 `TrueForge sandbox -> human approval -> GitHub MCP PR -> Qodo review -> exact replay -> Safety Case`
+
+The full H-005 certification chain applies only to the deterministic H-005 target. Generic repositories use repository inspection unless the runtime discovers a matching evidence-backed scenario.
 
 ## Evidence integrity
 
