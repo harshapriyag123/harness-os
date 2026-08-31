@@ -1,21 +1,40 @@
 # Hosted TrueForge runtime setup
 
-Harness OS live mode is designed to talk to a **hosted TrueForge API**, not a local fallback.
+Harness OS now uses the project's known hosted services directly in code. A large `.env` is not required for the demo.
 
-## Required server-side environment
+## Code-owned defaults
 
 ```text
-HARNESS_OS_MODE=live
-TRUEFORGE_API_BASE_URL=https://<your-trueforge-api-origin>
-TRUEFORGE_TOKEN=<server-side-token>
-TRUEFORGE_AGENT_NAME=harness-os
-TRUEFORGE_REQUEST_TIMEOUT_SECONDS=60
-TRUEFORGE_PROBE_TIMEOUT_SECONDS=4
+TrueForge host: https://harsha.truefoundry.cloud
+TrueForge agent: harness-os
+Repository: https://github.com/harshapriyag123/harness-os
+Refund fixture: https://harness-os.onrender.com
+FaultLine MCP: https://faultline-h005.onrender.com/mcp
 ```
 
-`TRUEFORGE_BASE_URL` remains supported as a compatibility alias, but `TRUEFORGE_API_BASE_URL` is preferred for hosted deployments because it makes the distinction from a human-facing dashboard URL explicit.
+Harness OS probes the known TrueForge host using `/api/v1/capabilities`. There is no localhost fallback in the hosted path.
 
-The configured origin must expose TrueForge API routes such as:
+## Minimal environment
+
+Normally the only TrueForge value that may need to be supplied is the server-side authentication token:
+
+```powershell
+$env:TRUEFORGE_TOKEN="<server-side-token>"
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+If the hosted service does not require a bearer token, even `TRUEFORGE_TOKEN` can remain unset.
+
+## Only override the API URL when needed
+
+The currently known TrueForge URL is `https://harsha.truefoundry.cloud`. If that host is only the human-facing dashboard and TrueForge exposes its API from another origin, set just this one override:
+
+```powershell
+$env:TRUEFORGE_API_BASE_URL="https://<actual-api-origin>"
+```
+
+The API origin must expose routes such as:
 
 ```text
 GET  /api/v1/capabilities
@@ -23,35 +42,12 @@ POST /api/v1/sessions
 GET  /api/v1/sessions/{session_id}/events
 ```
 
-Do **not** use a dashboard URL unless those API routes are actually served from the same origin.
+Mission Control reports:
 
-## Live-mode safety behavior
-
-When `HARNESS_OS_MODE=live`:
-
-- missing TrueForge API configuration returns `NOT_CONFIGURED`;
-- `localhost`, `127.0.0.1`, and `::1` are rejected for the TrueForge API base;
-- Harness OS does not silently fall back to a local/demo TrueForge server;
-- authentication errors are reported as `AUTH_ERROR`;
-- dashboard/wrong-route responses are reported as `WRONG_API_BASE`;
-- connectivity failures are reported as `UNAVAILABLE` or `TIMEOUT`;
-- the TrueForge token is never returned to the browser.
-
-## Windows PowerShell example
-
-```powershell
-$env:HARNESS_OS_MODE="live"
-$env:TRUEFORGE_API_BASE_URL="https://<your-trueforge-api-origin>"
-$env:TRUEFORGE_TOKEN="<your-server-side-token>"
-$env:TRUEFORGE_AGENT_NAME="harness-os"
-$env:TRUEFORGE_REQUEST_TIMEOUT_SECONDS="60"
-$env:TRUEFORGE_PROBE_TIMEOUT_SECONDS="4"
-
-cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-```
-
-Then open Mission Control and use **Retry connection**. The expected status is `CONNECTED TrueForge`.
+- `CONNECTED` when the capability endpoint succeeds;
+- `AUTH_ERROR` when the service is reachable but rejects authentication;
+- `WRONG_API_BASE` when the known host is a dashboard/wrong route;
+- `TIMEOUT` or `UNAVAILABLE` for connectivity failures.
 
 ## Public deployment architecture
 
@@ -62,11 +58,11 @@ Public React UI
 Public Harness OS control-plane API
       |
       v
-Hosted TrueForge API
+Hosted TrueForge
       |-- GitHub MCP
       |-- FaultLine MCP
       |-- Sandbox
       `-- Native approval checkpoints
 ```
 
-Keep `TRUEFORGE_TOKEN` only on the Harness OS backend/control-plane service. Never expose it through a `VITE_*` frontend environment variable.
+Secrets remain backend-only. Never place `TRUEFORGE_TOKEN` in a `VITE_*` frontend variable.

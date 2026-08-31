@@ -6,6 +6,7 @@ from typing import Any
 
 from . import store, verification_artifacts
 from .integrations.trueforge import TrueForgeClient, TrueForgeError
+from .integrations.trueforge.client import DEFAULT_TRUEFORGE_BASE_URL, DEFAULT_TRUEFORGE_AGENT_NAME
 
 ACTIVE_STATUSES = ("WAITING_APPROVAL", "RUNNING", "PLANNING", "PAUSED")
 
@@ -90,7 +91,7 @@ def _positive_timeout(env_name: str, default: float, minimum: float, maximum: fl
 
 
 def _configured_base() -> str:
-    return (os.getenv("TRUEFORGE_API_BASE_URL") or os.getenv("TRUEFORGE_BASE_URL") or "").strip().rstrip("/")
+    return (os.getenv("TRUEFORGE_API_BASE_URL") or os.getenv("TRUEFORGE_BASE_URL") or DEFAULT_TRUEFORGE_BASE_URL).strip().rstrip("/")
 
 
 def trueforge_status() -> dict[str, Any]:
@@ -98,20 +99,14 @@ def trueforge_status() -> dict[str, Any]:
     try:
         configured = TrueForgeClient.from_env()
     except (TypeError, ValueError) as exc:
-        message = str(exc)
-        not_configured = "is required in live mode" in message or "localhost while HARNESS_OS_MODE=live" in message
         return {
-            "base_url": configured_base or None,
-            "agent_name": os.getenv("TRUEFORGE_AGENT_NAME", "harness-os"),
-            "status": "NOT_CONFIGURED" if not_configured else "CONFIG_ERROR",
+            "base_url": configured_base,
+            "agent_name": DEFAULT_TRUEFORGE_AGENT_NAME,
+            "status": "CONFIG_ERROR",
             "retryable": True,
-            "detail": message,
-            "diagnosis": (
-                "Set TRUEFORGE_API_BASE_URL (or TRUEFORGE_BASE_URL) to the public TrueForge API origin and configure TRUEFORGE_TOKEN on the Harness OS server. Live mode intentionally refuses localhost fallback."
-                if not_configured
-                else "Fix the server-side TrueForge API base/timeout configuration, then retry. Secrets are never returned to the browser."
-            ),
-            "configuration_required": not_configured,
+            "detail": str(exc),
+            "diagnosis": "Harness OS has a built-in hosted TrueForge URL. Only override it when your TrueForge deployment exposes a different API origin.",
+            "configuration_required": False,
             "capabilities": None,
         }
 
@@ -120,11 +115,12 @@ def trueforge_status() -> dict[str, Any]:
     probe = TrueForgeClient(configured.base_url, configured.token, effective_timeout)
     base = {
         "base_url": configured.base_url,
-        "agent_name": os.getenv("TRUEFORGE_AGENT_NAME", "harness-os"),
+        "agent_name": DEFAULT_TRUEFORGE_AGENT_NAME,
         "request_timeout_seconds": configured.timeout,
         "probe_timeout_seconds": probe.timeout,
         "configuration_warning": warning,
         "hosted": configured.base_url.startswith("https://"),
+        "uses_code_default": not bool(os.getenv("TRUEFORGE_API_BASE_URL") or os.getenv("TRUEFORGE_BASE_URL")),
     }
     try:
         capabilities = probe.capabilities()
@@ -132,7 +128,7 @@ def trueforge_status() -> dict[str, Any]:
             **base,
             "status": "CONNECTED",
             "retryable": False,
-            "detail": "Public TrueForge API responded to the live capability probe." if base["hosted"] else "TrueForge API responded to the live capability probe.",
+            "detail": "Hosted TrueForge API responded to the live capability probe.",
             "capabilities": capabilities,
         }
     except TrueForgeError as exc:
@@ -144,16 +140,16 @@ def trueforge_status() -> dict[str, Any]:
         wrong_base = "endpoint was not found" in lowered or "non-json response" in lowered
         if auth_failed:
             status = "AUTH_ERROR"
-            diagnosis = "The TrueForge API is reachable, but authentication failed. Update the server-side TRUEFORGE_TOKEN and retry."
+            diagnosis = "The hosted TrueForge service is reachable. Add/update TRUEFORGE_TOKEN on the backend only if this deployment requires authentication."
         elif wrong_base:
             status = "WRONG_API_BASE"
-            diagnosis = "The configured URL appears to be a dashboard or incorrect route. Use the TrueForge API origin that exposes /api/v1/capabilities and /api/v1/sessions."
+            diagnosis = "Harness OS tried the known hosted TrueForge URL, but that host did not expose the expected API route. If TrueForge provides a separate API origin, override TRUEFORGE_API_BASE_URL with that one value."
         else:
             status = "TIMEOUT" if timed_out else "UNAVAILABLE" if unavailable else "ERROR"
             diagnosis = (
-                "The Harness OS control plane could not reach the hosted TrueForge API. Verify TRUEFORGE_API_BASE_URL/TRUEFORGE_BASE_URL, server-side authentication, and outbound network access, then retry."
+                "Harness OS could not reach the hosted TrueForge service. Retry first; only override TRUEFORGE_API_BASE_URL if your deployment uses a different API origin."
                 if timed_out or unavailable
-                else "TrueForge returned an unexpected response. Check the hosted API base and server-side credentials."
+                else "TrueForge returned an unexpected response. No localhost fallback is used."
             )
         return {
             **base,
