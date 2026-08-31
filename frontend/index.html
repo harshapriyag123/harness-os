@@ -3,29 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Harness OS — autonomous pre-deployment safety verification for AI agents, with live TrueForge execution, Qodo review gating, human approval, exact replay, and Safety Case evidence." />
-    <title>Harness OS — TrueForge + Qodo Agent Safety Verification</title>
-    <style>
-      #judge-links{position:relative;z-index:10000;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:9px 18px;background:#090d18;border-bottom:1px solid rgba(255,255,255,.1);color:#d7deeb;font:12px/1.4 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-      #judge-links .judge-title{display:flex;align-items:center;gap:8px;white-space:nowrap;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-      #judge-links .judge-title i{width:8px;height:8px;border-radius:999px;background:#4ade80;box-shadow:0 0 12px rgba(74,222,128,.8)}
-      #judge-links nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
-      #judge-links a{color:#e7ecf5;text-decoration:none;padding:5px 9px;border:1px solid rgba(255,255,255,.13);border-radius:999px;background:rgba(255,255,255,.04);transition:background 120ms ease,border-color 120ms ease}
-      #judge-links a:hover,#judge-links a:focus-visible{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.24);outline:none}
-      #judge-links .evidence{color:#fecaca;border-color:rgba(248,113,113,.28)}
-      @media(max-width:760px){#judge-links{align-items:flex-start;flex-direction:column}#judge-links nav{justify-content:flex-start}}
-    </style>
+    <meta name="description" content="Harness OS — approval-first pre-deployment safety verification for AI agents, powered by TrueForge execution and Qodo review evidence." />
+    <title>Harness OS — Agent Safety Control Plane</title>
   </head>
   <body>
-    <div id="judge-links" role="navigation" aria-label="Judge quick links">
-      <div class="judge-title"><i></i>Judge Quick Links</div>
-      <nav>
-        <a href="https://github.com/harshapriyag123/harness-os" target="_blank" rel="noreferrer">Source Code</a>
-        <a class="evidence" href="https://github.com/harshapriyag123/harness-os/pull/5" target="_blank" rel="noreferrer">Qodo Hardening</a>
-        <a href="https://harness-os.onrender.com/health" target="_blank" rel="noreferrer">Refund Fixture</a>
-        <a href="https://faultline-h005.onrender.com/health" target="_blank" rel="noreferrer">FaultLine</a>
-      </nav>
-    </div>
     <div id="judge-live-integrations" aria-live="polite"></div>
     <div id="certification-root" aria-live="polite"></div>
     <div id="root"></div>
