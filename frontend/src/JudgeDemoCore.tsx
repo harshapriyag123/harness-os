@@ -40,9 +40,10 @@ export default function JudgeDemoCore(){
    </section>
    <div className="judge-core-score"><b>{ready}/4</b><span>runtime prerequisites live</span><i style={{width:`${ready/4*100}%`}}/></div>
    <section className="judge-core-hero"><div><span>THE 20-SECOND STORY</span><h3>$249 succeeds remotely → response is lost → agent retries → $498</h3><p><b>H-005:</b> an irreversible operation whose remote execution state is unknown must not be blindly repeated.</p></div><div className="judge-core-money"><div><small>EXPECTED</small><b>$249</b></div><em>→</em><div className="danger"><small>VULNERABLE</small><b>$498</b></div></div></section>
+   <section className="judge-core-climax"><Cpu/><div><span>TRUEFORGE MODEL SETUP</span><strong>OpenAI-compatible Ollama endpoint</strong><p><code>http://host.docker.internal:11434/v1</code> · model = exact name from <code>ollama list</code>. Ollama supplies inference; TrueForge still owns the agent loop and tools.</p></div></section>
    <section className="judge-core-steps">{steps.map(([n,k,d])=><article key={n}><b>{n}</b><div><span>{k}</span><p>{d}</p></div></article>)}</section>
    <section className="judge-core-climax"><AlertTriangle/><div><span>DEMO CLIMAX</span><strong>Pause before GitHub mutation</strong><p>The run is not complete until TrueForge itself is waiting for human approval. Approve only the exact bound GitHub MCP calls, then create the PR and let Qodo review it.</p></div><GitPullRequest/></section>
-   <footer><button onClick={()=>document.querySelector<HTMLButtonElement>('.mc-primary')?.click()}><Play/>Start / inspect target</button><a href="https://github.com/harshapriyag123/harness-os" target="_blank" rel="noreferrer">Repository <ExternalLink/></a></footer>
+   <footer><button onClick={()=>document.querySelector<HTMLButtonElement>('.mc-primary')?.click()}><Play/>Start / inspect target</button><a href="https://github.com/harshapriyag123/harness-os/blob/feat/ollama-judge-demo-core/docs/OLLAMA_HACKATHON_RUNBOOK.md" target="_blank" rel="noreferrer">Ollama runbook <ExternalLink/></a><a href="https://github.com/harshapriyag123/harness-os" target="_blank" rel="noreferrer">Repository <ExternalLink/></a></footer>
   </div>}
  </aside>
 }
