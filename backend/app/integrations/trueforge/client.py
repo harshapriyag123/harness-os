@@ -86,16 +86,25 @@ class TrueForgeClient:
                 body = json.loads(raw or b"{}")
         except HTTPError as exc:
             raw = exc.read().decode(errors="replace")
+            try:
+                error_body = json.loads(raw)
+                api_message = error_body.get("error", {}).get("message")
+            except (json.JSONDecodeError, AttributeError):
+                api_message = None
             if exc.code in {401, 403}:
                 raise TrueForgeError(
                     f"TrueForge authentication failed at {self.base_url}: HTTP {exc.code}. Set TRUEFORGE_TOKEN on the backend if this deployment requires authentication."
                 ) from exc
-            if exc.code == 404:
+            if exc.code == 404 and api_message and api_message.startswith("Route not found:"):
                 raise TrueForgeError(
                     f"TrueForge API endpoint was not found at {self.base_url}{path}. The known hosted URL is reachable but may be a dashboard origin rather than the API origin. Override TRUEFORGE_API_BASE_URL only if TrueForge exposes a different API host."
                 ) from exc
+            if exc.code == 404 and api_message and api_message.startswith("Agent not found:"):
+                raise TrueForgeError(
+                    f"TrueForge agent is not configured at {self.base_url}: {api_message}. Create an agent named '{DEFAULT_TRUEFORGE_AGENT_NAME}' in TrueForge, then retry."
+                ) from exc
             raise TrueForgeError(
-                f"TrueForge {method} {path} returned {exc.code}: {raw[:500]}"
+                f"TrueForge {method} {path} returned {exc.code}: {(api_message or raw)[:500]}"
             ) from exc
         except URLError as exc:
             raise TrueForgeError(

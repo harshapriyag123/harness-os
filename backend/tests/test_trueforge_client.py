@@ -3,7 +3,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app.integrations.trueforge import TrueForgeClient
+from app.integrations.trueforge import TrueForgeClient, TrueForgeError
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -28,6 +28,14 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
         Handler.requests.append(("POST", self.path, body))
+        if body.get("agent", {}).get("name") == "missing-agent":
+            raw = json.dumps({"error": {"message": "Agent not found: missing-agent"}}).encode()
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         self._send(
             {"id": "turn_real", "state": {"status": "running"}}
             if self.path.endswith("/turns")
@@ -112,3 +120,8 @@ class TrueForgeClientTest(unittest.TestCase):
             },
             Handler.requests[-1][2]["input"][0],
         )
+
+    def test_missing_agent_is_not_reported_as_missing_endpoint(self):
+        with self.assertRaisesRegex(TrueForgeError, "Agent not found: missing-agent") as raised:
+            self.client.create_session("missing-agent")
+        self.assertNotIn("endpoint was not found", str(raised.exception))
