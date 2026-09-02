@@ -66,6 +66,7 @@ CustomerSupportAgent
 | **Refund fixture** | https://harness-os.onrender.com/health | Authoritative controlled side-effect service |
 | **FaultLine MCP** | https://faultline-h005.onrender.com/health | Deterministic timeout-after-success fault service |
 | **Source / Qodo trail** | https://github.com/harshapriyag123/harness-os | Source, PR history and review evidence |
+| 🎥 **Demo Video** | [Watch on YouTube](https://youtu.be/32IL6Yeo7gM) | 13-minute Harness OS hackathon demonstration |
 
 > Free Render services can cold-start after inactivity. The GitHub Pages blog, public console and judge shell remain available while services wake.
 
