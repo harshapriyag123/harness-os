@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os
+import asyncio, json, os, threading
 from typing import Any
 from . import engine, h005_evidence, store, verification_artifacts
 from .integrations.trueforge import TrueForgeClient
@@ -85,19 +85,16 @@ def evaluate_h005(campaign_id):
     store.put("campaigns",campaign);return result
 
 def _apply_runtime_artifacts(campaign_id,event):
-    try: verification_artifacts.apply(campaign_id,event)
-    except Exception as exc:
+    try:verification_artifacts.apply(campaign_id,event)
+    except (ValueError,TypeError,KeyError) as exc:
         try:has_artifacts=bool(verification_artifacts.extract(event))
-        except Exception:has_artifacts=True
+        except (ValueError,TypeError,KeyError):has_artifacts=True
         if has_artifacts:engine.emit(campaign_id,"artifact.rejected","Verification artifact rejected",str(exc)[:1200],source="HARNESS_OS")
 
 def _complete_generic(campaign,event_type):
-    if event_type in {"turn.failed"}:
-        campaign.update({"status":"ERROR","current_stage":"REPOSITORY_INSPECTION_FAILED","decision":"INCONCLUSIVE","updated_at":engine.now()})
-    elif event_type in {"turn.cancelled"}:
-        campaign.update({"status":"CANCELLED","current_stage":"REPOSITORY_INSPECTION_CANCELLED","decision":"INCONCLUSIVE","updated_at":engine.now()})
-    else:
-        campaign.update({"status":"COMPLETED","current_stage":"REPOSITORY_INSPECTION_COMPLETE","progress":100,"decision":"INCONCLUSIVE","updated_at":engine.now()})
+    if event_type in {"turn.failed"}:campaign.update({"status":"ERROR","current_stage":"REPOSITORY_INSPECTION_FAILED","decision":"INCONCLUSIVE","updated_at":engine.now()})
+    elif event_type in {"turn.cancelled"}:campaign.update({"status":"CANCELLED","current_stage":"REPOSITORY_INSPECTION_CANCELLED","decision":"INCONCLUSIVE","updated_at":engine.now()})
+    else:campaign.update({"status":"COMPLETED","current_stage":"REPOSITORY_INSPECTION_COMPLETE","progress":100,"decision":"INCONCLUSIVE","updated_at":engine.now()})
     store.put("campaigns",campaign)
 
 async def sync_campaign(campaign_id):
@@ -132,13 +129,25 @@ async def sync_campaign(campaign_id):
             campaign=store.get("campaigns",campaign_id) or campaign;campaign.update({"status":"ERROR","current_stage":"TRUEFORGE_EVENT_SYNC_FAILED","runtime_error":str(exc),"updated_at":engine.now()});store.put("campaigns",campaign);return
         await asyncio.sleep(poll)
 
+def _schedule_sync(campaign_id:str):
+    try:asyncio.get_running_loop().create_task(sync_campaign(campaign_id));return
+    except RuntimeError:pass
+    def runner():
+        try:asyncio.run(sync_campaign(campaign_id))
+        except Exception as exc:
+            campaign=store.get("campaigns",campaign_id)
+            if campaign and campaign.get("status") not in {"CANCELLED","COMPLETED","ERROR"}:
+                campaign.update({"status":"ERROR","current_stage":"SYNC_START_FAILED","runtime_error":str(exc),"updated_at":engine.now()});store.put("campaigns",campaign)
+    thread=threading.Thread(target=runner,name=f'harness-hero-sync-{campaign_id}',daemon=True);thread.start()
+    if not thread.is_alive():raise RuntimeError("Could not start TrueForge event synchronization")
+
 def start_campaign(payload):
     campaign=engine.create_campaign(payload);client=TrueForgeClient.from_env()
     try:session=client.create_session(os.getenv("TRUEFORGE_AGENT_NAME","harness-os"));turn=client.submit_task(session["id"],HERO_TASK,stream=False)
     except Exception:campaign.update({"status":"ERROR","runtime":"TRUEFORGE","current_stage":"RUNTIME_CONNECTION_FAILED","updated_at":engine.now()});store.put("campaigns",campaign);raise
     campaign.update({"trueforge_session_id":session["id"],"trueforge_turn_id":turn["id"],"status":"RUNNING","current_stage":"TRUEFORGE_TURN","runtime":"TRUEFORGE","updated_at":engine.now()});store.put("campaigns",campaign)
-    try:asyncio.get_running_loop().create_task(sync_campaign(campaign["id"]))
-    except RuntimeError:pass
+    try:_schedule_sync(campaign["id"])
+    except Exception:campaign.update({"status":"ERROR","current_stage":"SYNC_START_FAILED","updated_at":engine.now()});store.put("campaigns",campaign);raise
     return campaign
 
 def decide_approval(approval_id,approved,actor,reason):

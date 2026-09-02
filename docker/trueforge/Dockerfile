@@ -7,5 +7,7 @@ ENV NODE_ENV=production \
 ARG TRUEFORGE_VERSION=latest
 RUN npm install --omit=dev "@truefoundry/trueforge@${TRUEFORGE_VERSION}" \
     && npm cache clean --force
+COPY entrypoint.sh /usr/local/bin/harness-trueforge-entrypoint
+RUN chmod +x /usr/local/bin/harness-trueforge-entrypoint
 EXPOSE 8790
-CMD ["node", "node_modules/@truefoundry/trueforge/dist/main.js"]
+ENTRYPOINT ["/usr/local/bin/harness-trueforge-entrypoint"]
