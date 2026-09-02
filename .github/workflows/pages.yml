@@ -1,4 +1,4 @@
-name: Deploy public judge view
+name: Deploy public judge views
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/pages.yml'
-      - 'docs/images/**'
   workflow_dispatch:
 
 permissions:
@@ -31,16 +30,38 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Build hosted Mission Control judge console
+
+      - name: Build existing read-only root console
         working-directory: frontend
         env:
           VITE_PUBLIC_READ_ONLY: 'true'
-          VITE_TRUEFORGE_PUBLIC_URL: 'https://harness-os-trueforge.onrender.com'
+          VITE_BASE_PATH: '/harness-os/'
         run: npm run build
+
+      - name: Stage root console
+        run: |
+          rm -rf /tmp/harness-pages
+          mkdir -p /tmp/harness-pages
+          cp -R frontend/dist/. /tmp/harness-pages/
+
+      - name: Build full Mission Control judge demo
+        working-directory: frontend
+        env:
+          VITE_PUBLIC_READ_ONLY: 'false'
+          VITE_HOSTED_JUDGE: 'true'
+          VITE_API_URL: 'https://harness-os-api-cloud.onrender.com'
+          VITE_BASE_PATH: '/harness-os/judge-demo/'
+        run: npm run build
+
+      - name: Stage full judge demo under dedicated path
+        run: |
+          mkdir -p /tmp/harness-pages/judge-demo
+          cp -R frontend/dist/. /tmp/harness-pages/judge-demo/
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: /tmp/harness-pages
 
   deploy:
     environment:
