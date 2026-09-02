@@ -1,4 +1,19 @@
+databases:
+  - name: harness-os-trueforge-db
+    plan: free
+    databaseName: trueforge
+    user: trueforge
+    postgresMajorVersion: "17"
+    ipAllowList: []
+
 services:
+  - type: keyvalue
+    name: harness-os-trueforge-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+    persistenceMode: off
+
   - type: web
     name: harness-os-trueforge
     runtime: docker
@@ -13,10 +28,35 @@ services:
         value: 0.0.0.0
       - key: PORT
         value: 8790
+      - key: PUBLIC_BASE_URL
+        value: https://harness-os-trueforge.onrender.com
       - key: STANDALONE
-        value: "true"
-      - key: SQLITE_PATH
-        value: /tmp/trueforge.db
+        value: "false"
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: harness-os-trueforge-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: harness-os-trueforge-db
+          property: port
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: harness-os-trueforge-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: harness-os-trueforge-db
+          property: password
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: harness-os-trueforge-db
+          property: database
+      - key: REDIS_URL
+        fromService:
+          name: harness-os-trueforge-redis
+          type: keyvalue
+          property: connectionString
 
   - type: web
     name: harness-os-api-cloud
