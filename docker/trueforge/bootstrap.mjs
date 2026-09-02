@@ -1,4 +1,4 @@
-const origin=(process.env.PUBLIC_BASE_URL||`http://127.0.0.1:${process.env.PORT||8790}`).replace(/\/$/,'');
+const origin=(process.env.TRUEFORGE_BOOTSTRAP_BASE_URL||`http://127.0.0.1:${process.env.PORT||8790}`).replace(/\/$/,'');
 const enabled=(process.env.TRUEFORGE_BOOTSTRAP_ENABLED||'true').toLowerCase()==='true';
 const provider=process.env.TRUEFORGE_MODEL_PROVIDER||'openai';
 const modelId=process.env.TRUEFORGE_MODEL_ID||'gpt-5-4-mini';
