@@ -1,7 +1,7 @@
 FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production \
-    STANDALONE=true \
+    STANDALONE=false \
     HOST=0.0.0.0 \
     PORT=8790
 ARG TRUEFORGE_VERSION=latest
