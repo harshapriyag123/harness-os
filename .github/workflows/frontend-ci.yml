@@ -1,0 +1,34 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'docs/index.html'
+      - '.github/workflows/frontend-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Build local Mission Control
+        working-directory: frontend
+        run: npm run build
+      - name: Build public judge view
+        working-directory: frontend
+        env:
+          VITE_PUBLIC_READ_ONLY: 'true'
+        run: npm run build
