@@ -32,8 +32,28 @@ services:
         value: https://harness-os-trueforge.onrender.com
       - key: STANDALONE
         value: "false"
+      # Hackathon public demo posture. Do not attach GitHub write credentials while OIDC is disabled.
       - key: REQUIRE_OIDC
         value: "false"
+      - key: TRUEFORGE_BOOTSTRAP_ENABLED
+        value: "true"
+      - key: TRUEFORGE_AGENT_NAME
+        value: harness-os
+      - key: TRUEFORGE_MODEL_PROVIDER
+        value: openai
+      - key: TRUEFORGE_MODEL_ID
+        value: gpt-5-4-mini
+      - key: TRUEFORGE_MODEL_NAME
+        value: gpt-5-4-mini
+      # Secret: set this manually in Render. It is never committed to Git.
+      - key: TRUEFORGE_MODEL_API_KEY
+        sync: false
+      - key: TRUEFORGE_FAULTLINE_MCP_NAME
+        value: faultline
+      - key: TRUEFORGE_FAULTLINE_MCP_URL
+        value: https://faultline-h005.onrender.com/mcp
+      - key: TRUEFORGE_BOOTSTRAP_WAIT_MS
+        value: "300000"
       - key: POSTGRES_HOST
         fromDatabase:
           name: harness-os-trueforge-db
