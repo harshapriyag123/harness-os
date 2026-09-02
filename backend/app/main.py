@@ -23,18 +23,7 @@ def fail(exc):
  raise HTTPException(404 if isinstance(exc,KeyError) else 409 if isinstance(exc,ValueError) else 503,detail={'code':exc.__class__.__name__.upper(),'message':str(exc).strip("'")})
 
 @app.get('/')
-def root():
- return {
-  'service':'Harness OS API',
-  'status':'ok',
-  'mode':engine.MODE,
-  'health':'/health',
-  'dashboard':'/api/v1/dashboard',
-  'operator_snapshot':'/api/v1/operator-snapshot',
-  'trueforge_status':'/api/v1/trueforge/status',
-  'public_services':'/api/v1/public-services',
-  'docs':'/docs'
- }
+def root():return {'service':'Harness OS API','status':'ok','mode':engine.MODE,'health':'/health','dashboard':'/api/v1/dashboard','operator_snapshot':'/api/v1/operator-snapshot','trueforge_status':'/api/v1/trueforge/status','public_services':'/api/v1/public-services','docs':'/docs'}
 @app.get('/health')
 def health():return {'status':'ok','mode':engine.MODE}
 @app.get('/api/v1/dashboard')
@@ -132,22 +121,48 @@ def campaign_verification_artifacts(cid:str):
 @app.post('/api/v1/campaigns/{cid}/verification-artifacts/sync')
 def sync_verification_artifacts(cid:str):
  required('campaigns',cid)
- try:return verification_artifacts.sync(cid)
+ try:return {'artifacts':verification_artifacts.sync_from_persisted_events(cid),'campaign':required('campaigns',cid)}
  except Exception as exc:fail(exc)
-@app.get('/api/v1/campaigns/{cid}/certification')
-def campaign_certification(cid:str):
- required('campaigns',cid)
- try:return verification_artifacts.certification(cid)
+@app.get('/api/v1/campaigns/{cid}/certification-status')
+def certification_status(cid:str):
+ c=required('campaigns',cid)
+ if c.get('campaign_kind')=='GENERIC_REPOSITORY_INSPECTION':
+  return {'campaign_id':cid,'stage':c.get('current_stage'),'next_gate':'repository_inspection' if c.get('status') not in {'COMPLETED','ERROR','CANCELLED'} else 'complete','generic':True,'gates':{},'qodo_blocks_replay':False}
+ try:return verification_artifacts.certification_status(cid,refresh_qodo=False)
  except Exception as exc:fail(exc)
-@app.get('/api/v1/campaigns/{cid}/findings')
-def campaign_findings(cid:str):required('campaigns',cid);return [x for x in store.list_records('findings') if x['campaign_id']==cid]
+@app.post('/api/v1/campaigns/{cid}/qodo-refresh')
+def refresh_qodo(cid:str):
+ c=required('campaigns',cid)
+ if c.get('campaign_kind')=='GENERIC_REPOSITORY_INSPECTION':raise HTTPException(409,detail={'code':'NOT_APPLICABLE','message':'Qodo certification gate is not part of a generic repository inspection.'})
+ try:return verification_artifacts._qodo_gate(c,refresh=True)
+ except Exception as exc:fail(exc)
+@app.get('/api/v1/traces')
+def traces(campaign_id:str|None=None):return store.events(campaign_id) if campaign_id else [e for c in store.list_records('campaigns') for e in store.events(c['id'])]
+@app.get('/api/v1/findings')
+def findings():return store.list_records('findings')
 @app.get('/api/v1/approvals')
 def approvals():return store.list_records('approvals')
-@app.post('/api/v1/approvals/{approval_id}/decision')
-def decide(approval_id:str,body:Decision):
- try:return trueforge_runtime.decide_approval(approval_id,body.decision)
+@app.post('/api/v1/approvals/{approval_id}/{action}')
+def approval_decision(approval_id:str,action:str,body:Decision):
+ if action not in {'approve','reject'}:raise HTTPException(404)
+ try:return trueforge_runtime.decide_approval(approval_id,action=='approve',body.approver,body.reason)
  except Exception as exc:fail(exc)
 @app.get('/api/v1/safety-cases')
 def safety_cases():return store.list_records('safety_cases')
-@app.get('/api/v1/integrations/qodo')
-def qodo_status():return qodo.status()
+@app.get('/api/v1/safety-cases/{case_id}')
+def safety_case(case_id:str):return required('safety_cases',case_id)
+@app.post('/api/v1/campaigns/{cid}/safety-case')
+def create_safety_case(cid:str):
+ try:return engine.create_safety_case(cid)
+ except Exception as exc:fail(exc)
+@app.get('/api/v1/integrations')
+def integrations():
+ tf=operator_control.trueforge_status();tf_status='CONNECTED' if tf.get('status')=='CONNECTED' else tf.get('status','ERROR');tf_detail=tf.get('detail','TrueForge status unavailable.')
+ qodo_status=qodo.snapshot();hosted=public_services.snapshot()['services'];hosted_by_name={x['name']:x for x in hosted}
+ return {'mode':engine.MODE,'pipeline':'TrueForge -> FaultLine MCP -> GitHub MCP -> Qodo Review -> Safety Case','integrations':[
+   {'name':'TrueForge','status':tf_status,'detail':tf_detail,'proof':tf,'href':None},
+   {'name':'Chaos MCP','status':'CONNECTED' if hosted_by_name.get('FaultLine MCP',{}).get('reachable') else 'UNAVAILABLE','detail':'Public FaultLine H-005 service is probed by the local control plane.','proof':hosted_by_name.get('FaultLine MCP',{}),'href':hosted_by_name.get('FaultLine MCP',{}).get('url')},
+   {'name':'GitHub MCP','status':'MANAGED_NOT_PROBED','detail':'GitHub MCP is configured inside TrueForge. Harness OS treats this as configuration, not a live-health assertion; actual reads/writes must appear as TrueForge tool evidence.','proof':{'repository':'selected per target'},'href':'https://github.com/harshapriyag123/harness-os'},
+   qodo_status,
+   {'name':'Safety Case','status':'HARNESS OS','detail':'Normalized runtime evidence, approvals, Qodo review evidence, replay evidence and release verdicts are persisted by Harness OS.','proof':{'cases':len(store.list_records('safety_cases'))},'href':None},
+  ],'public_services':hosted}
