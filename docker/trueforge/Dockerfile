@@ -4,8 +4,9 @@ ENV NODE_ENV=production \
     STANDALONE=false \
     HOST=0.0.0.0 \
     PORT=8790
-# Pin the API contract used by Harness OS. Do not deploy floating `latest` here.
-ARG TRUEFORGE_VERSION=0.2.0-rc.0
+# Pin the published server release instead of floating `latest` so Render
+# rebuilds keep the same HTTP API contract used by Harness OS.
+ARG TRUEFORGE_VERSION=0.1.4
 RUN npm install --omit=dev "@truefoundry/trueforge@${TRUEFORGE_VERSION}" \
     && npm cache clean --force
 COPY entrypoint.sh /usr/local/bin/harness-trueforge-entrypoint
