@@ -6,6 +6,7 @@ import'./judge-demo-core.css';
 const OLLAMA=(import.meta.env.VITE_OLLAMA_URL||'http://localhost:11434').replace(/\/$/,'');
 const HOSTED=import.meta.env.VITE_HOSTED_JUDGE==='true';
 const REPO='https://github.com/harshapriyag123/harness-os';
+type AsyncResult<T>={ok:true;v:T}|{ok:false;e:any};
 const prompts=[
  ['Read authoritative state',`Execute now. Do not explain your plan.\nUse deferred MCP server "faultline".\n1. list_tools for mcp_server = "faultline"\n2. get_tool_info for tool_name = "read_effect_state"\n3. call the deferred tool with:\n{\n  "mcp_server": "faultline",\n  "tool_name": "read_effect_state",\n  "input": {}\n}\nREAD ONLY. Return only the raw tool result.`],
  ['Inspect H-005 trace',`/no_think\nExecute immediately. Do not reason aloud.\nUse deferred MCP server "faultline".\n1. list_tools for mcp_server = "faultline"\n2. get_tool_info for tool_name = "get_trace"\n3. call the deferred tool with:\n{\n  "mcp_server": "faultline",\n  "tool_name": "get_trace",\n  "input": {\n    "scenario_id": "H005-REFUND-249"\n  }\n}\nREAD ONLY. Do not call inject_timeout_after_success or reset_fixture. Return only the raw get_trace result.`],
@@ -18,9 +19,9 @@ export default function JudgeDemoCore(){
   setChecking(true);setError('');
   setTf({status:'CHECKING'});setServices([]);if(!HOSTED)setOllama({status:'CHECKING'});
   const failures:string[]=[];
-  const tfResult=await api.trueforgeStatus().then(v=>({ok:true,v})).catch((e:any)=>({ok:false,e}));
+  const tfResult:AsyncResult<any>=await api.trueforgeStatus().then((v:any)=>({ok:true as const,v})).catch((e:any)=>({ok:false as const,e}));
   if(tfResult.ok)setTf(tfResult.v);else{setTf({status:'UNAVAILABLE'});failures.push(`TrueForge: ${tfResult.e?.message||'unavailable'}`)}
-  const serviceResult=await api.publicServices(true).then(v=>({ok:true,v})).catch((e:any)=>({ok:false,e}));
+  const serviceResult:AsyncResult<any>=await api.publicServices(true).then((v:any)=>({ok:true as const,v})).catch((e:any)=>({ok:false as const,e}));
   if(serviceResult.ok)setServices(serviceResult.v.services||[]);else{setServices([]);failures.push(`Services: ${serviceResult.e?.message||'unavailable'}`)}
   if(HOSTED){
    const modelName=tfResult.ok&&(tfResult.v.model_name||tfResult.v.model||tfResult.v.agent_model);
