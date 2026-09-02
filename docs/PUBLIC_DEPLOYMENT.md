@@ -1,21 +1,30 @@
 # Public deployment runbook
 
-Harness OS intentionally separates the **public judge view** from the **full operator runtime**.
+Harness OS now supports two public surfaces plus the complete local runtime:
 
-- The public judge view is a read-only static site. It is safe to expose because it contains no secrets and performs no consequential actions.
-- The full operator runtime includes TrueForge, GitHub MCP, FaultLine MCP, the controlled refund fixture, the Harness OS API, optional local Ollama, sandbox execution and human approval. Run it locally for the complete hackathon demonstration.
+```text
+GitHub Pages / docs/index.html  -> judge-facing website
+Render                         -> public TrueForge + Harness OS API blueprint
+Existing Render services       -> refund fixture + FaultLine H-005
+Local Docker Compose           -> full Ollama + TrueForge + MCP + approval demo
+```
 
-This split prevents the public demo from pretending that a GitHub write, sandbox run or approval occurred when the private runtime is not actually connected.
+## Public judge URL
 
-## Public URLs
-
-After GitHub Pages is enabled for this repository and the `Deploy public judge view` workflow succeeds, the canonical public UI URL is:
+Canonical project site:
 
 ```text
 https://harshapriyag123.github.io/harness-os/
 ```
 
-Already-public controlled services used by the project:
+The repository contains **both** deployment paths so GitHub Pages cannot fall back to rendering Markdown as the website:
+
+- `docs/index.html` — static, zero-build judge site for branch `/docs` Pages mode.
+- `.github/workflows/pages.yml` — Vite/React judge-site deployment for GitHub Actions Pages mode.
+
+Either Pages configuration now has a real `index.html` project website instead of a README-only experience.
+
+## Already-public evidence services
 
 ```text
 Refund fixture health  https://harness-os.onrender.com/health
@@ -23,38 +32,49 @@ FaultLine health       https://faultline-h005.onrender.com/health
 Repository             https://github.com/harshapriyag123/harness-os
 ```
 
-The Pages UI is read-only by design. It explains the architecture, current evidence boundary, H-005 reproduction, public service links, Qodo evidence and exact local startup commands.
+## Free cloud TrueForge + API blueprint
 
-## Deploy the public UI for free with GitHub Pages
+The repository root now contains `render.yaml` and the missing `mcp-chaos/Dockerfile`.
 
-The repository includes `.github/workflows/pages.yml` and `frontend/vite.config.mjs`.
-
-One-time GitHub setting:
-
-1. Open the repository on GitHub.
-2. Go to **Settings → Pages**.
-3. Under **Build and deployment**, select **GitHub Actions** as the source.
-4. Merge the deployment workflow to `main`, or manually run **Deploy public judge view** from the Actions tab.
-5. Wait for the `github-pages` environment deployment to finish.
-6. Open `https://harshapriyag123.github.io/harness-os/`.
-
-The workflow builds with:
+The Blueprint declares:
 
 ```text
-VITE_PUBLIC_READ_ONLY=true
+harness-os-trueforge  -> docker/trueforge/Dockerfile
+harness-os-api-cloud  -> backend/Dockerfile
 ```
 
-That environment flag renders `PublicJudgeLanding` instead of Mission Control. The local build remains unchanged and still renders the complete Mission Control / Demo Mode / Judge Demo Core experience.
+TrueForge is therefore deployable as the same containerized harness used locally rather than being replaced by a fake hosted UI. The cloud API is configured to use the public FaultLine and refund fixture endpoints.
 
-## Local full runtime
+One-click Blueprint entry point:
+
+```text
+https://render.com/deploy?repo=https://github.com/harshapriyag123/harness-os
+```
+
+Render requires the account owner to approve the Blueprint because it creates services in that Render workspace. No GitHub or model secrets are embedded in this repository.
+
+Expected service URLs after the Blueprint is created with the declared names are typically:
+
+```text
+https://harness-os-trueforge.onrender.com
+https://harness-os-api-cloud.onrender.com
+```
+
+Treat those as expected names until Render reports each service as Live. The stable public URLs already verified by this project remain the fixture and FaultLine URLs above.
+
+## Render free-tier caveat
+
+The Blueprint uses `plan: free`. Free web services are suitable for a hackathon but can sleep after inactivity and have ephemeral local filesystems. TrueForge standalone SQLite is therefore configured under `/tmp` for the public demonstration runtime; do not treat that cloud SQLite file as durable certification evidence.
+
+The authoritative H-005 evidence in the submission remains the persisted controlled fixture/trace evidence and repository history.
+
+## Complete local runtime
 
 ```powershell
 git clone https://github.com/harshapriyag123/harness-os.git
 cd harness-os
 docker compose up --build
 ```
-
-Local endpoints:
 
 ```text
 Harness OS UI      http://localhost:5173
@@ -65,34 +85,17 @@ Refund fixture     http://localhost:8950
 Ollama             http://localhost:11434
 ```
 
-## Optional free Render hosting
+The local surface is the consequential-action demo: GitHub MCP writes, TrueForge sandbox execution and human approval remain here unless the hosted TrueForge instance is explicitly configured with equivalent credentials and approval policies.
 
-Render currently offers free static sites and free web services suitable for prototypes/hackathon demos. Free web services spin down after inactivity and use ephemeral local filesystems, so do not rely on local SQLite state as durable evidence. Persist important evidence in GitHub artifacts, external storage, or a database if you move the full runtime to the cloud.
+## Security boundary
 
-For this hackathon, the recommended deployment split is:
+The public judge website never contains:
 
-```text
-GitHub Pages  -> read-only judge-facing UI
-Render        -> controlled public fixture / FaultLine health endpoints
-Local machine -> TrueForge + Ollama + approval-gated GitHub MCP workflow
-```
+- GitHub PATs
+- model API keys
+- OAuth tokens
+- TrueForge credentials
+- simulated approvals
+- fabricated sandbox or Qodo PASS state
 
-This architecture keeps the public URL reliable while preserving the security and evidence integrity of the consequential runtime.
-
-## Why the public page does not create PRs
-
-A public static site must not carry a GitHub PAT, model key or TrueForge credential. The consequential path remains:
-
-```text
-TrueForge runtime
-  -> GitHub MCP
-  -> candidate remediation
-  -> sandbox evidence
-  -> explicit human approval
-  -> branch / file update / pull request
-  -> Qodo review
-  -> exact replay
-  -> Safety Case
-```
-
-If a judge wants to see that flow, run the local operator demo and screen-share the real approval boundary. Do not replace it with a fake client-side modal on the public site.
+Public deployment is for inspectability. Consequential actions remain evidence-gated.
