@@ -7,5 +7,6 @@ ENV NODE_ENV=production \
 ARG TRUEFORGE_VERSION=latest
 RUN npm install --omit=dev "@truefoundry/trueforge@${TRUEFORGE_VERSION}" \
     && npm cache clean --force
+COPY start.js /app/start.js
 EXPOSE 8790
-CMD ["node", "node_modules/@truefoundry/trueforge/dist/main.js"]
+CMD ["node", "/app/start.js"]
