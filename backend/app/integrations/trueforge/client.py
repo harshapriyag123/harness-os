@@ -65,7 +65,11 @@ class TrueForgeClient:
         except HTTPError as exc:
             raw = exc.read().decode(errors="replace")
             if exc.code in {401, 403}: raise TrueForgeError(f"TrueForge authentication failed at {self.base_url}: HTTP {exc.code}. Configure backend authentication for this deployment.") from exc
-            if exc.code == 404: raise TrueForgeError(f"TrueForge API endpoint was not found at {self.base_url}{path}. Verify TRUEFORGE_API_BASE_URL.") from exc
+            if exc.code == 404:
+                if method.upper()=="POST" and path=="/api/v1/sessions":
+                    agent=(payload or {}).get("agent",{}).get("name",DEFAULT_TRUEFORGE_AGENT_NAME)
+                    raise TrueForgeError(f"TrueForge is online, but named agent '{agent}' was not found. Configure the hosted model provider and wait for the Harness OS TrueForge bootstrap to create the agent, then retry. Server response: {raw[:300]}") from exc
+                raise TrueForgeError(f"TrueForge returned 404 for {method} {path} at {self.base_url}. The API origin is reachable; verify that the requested TrueForge resource exists. Server response: {raw[:300]}") from exc
             raise TrueForgeError(f"TrueForge {method} {path} returned {exc.code}: {raw[:500]}") from exc
         except URLError as exc: raise TrueForgeError(f"TrueForge unavailable at {self.base_url}: {exc.reason}") from exc
         except TimeoutError as exc: raise TrueForgeError(f"TrueForge request timed out after {self.timeout:g}s at {self.base_url}") from exc

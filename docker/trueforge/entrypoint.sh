@@ -16,4 +16,11 @@ if [ "${REQUIRE_OIDC:-false}" = "true" ]; then
   fi
 fi
 
+# Bootstrap runs as a sidecar process in the same container. It waits for the
+# TrueForge HTTP API, then idempotently provisions the model provider,
+# FaultLine MCP connector, and named harness-os agent. Secrets remain env-only.
+if [ "${TRUEFORGE_BOOTSTRAP_ENABLED:-true}" = "true" ]; then
+  node /usr/local/lib/harness-os/bootstrap.mjs &
+fi
+
 exec node node_modules/@truefoundry/trueforge/dist/main.js
