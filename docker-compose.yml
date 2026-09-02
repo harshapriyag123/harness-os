@@ -8,6 +8,8 @@ services:
         TRUEFORGE_VERSION: ${TRUEFORGE_VERSION:-latest}
     ports:
       - "8791:8790"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0

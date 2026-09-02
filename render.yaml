@@ -32,6 +32,16 @@ services:
         value: https://harness-os-trueforge.onrender.com
       - key: STANDALONE
         value: "false"
+      - key: REQUIRE_OIDC
+        value: "true"
+      - key: OIDC_ISSUER_URL
+        sync: false
+      - key: OIDC_CLIENT_ID
+        sync: false
+      - key: OIDC_CLIENT_SECRET
+        sync: false
+      - key: OIDC_ALLOWED_EMAILS
+        sync: false
       - key: POSTGRES_HOST
         fromDatabase:
           name: harness-os-trueforge-db
