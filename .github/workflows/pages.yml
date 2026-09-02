@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'docs/JUDGE_VERIFICATION_GUIDE.md'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -38,11 +39,13 @@ jobs:
           VITE_BASE_PATH: '/harness-os/'
         run: npm run build
 
-      - name: Stage root console
+      - name: Stage root console and public blog
         run: |
           rm -rf /tmp/harness-pages
           mkdir -p /tmp/harness-pages
           cp -R frontend/dist/. /tmp/harness-pages/
+          mkdir -p /tmp/harness-pages/blog
+          cp frontend/public/blog/index.html /tmp/harness-pages/blog/index.html
 
       - name: Build full Mission Control judge demo
         working-directory: frontend
