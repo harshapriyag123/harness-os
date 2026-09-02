@@ -12,6 +12,12 @@ Harness OS crash-tests an AI agent **before deployment**, reproduces dangerous t
 
 > **CI proves your code works. Harness OS proves your agent can be trusted to act when the real world behaves unexpectedly.**
 
+## 🧭 Judge verification — start here
+
+**Hackathon judges:** use [`docs/JUDGE_VERIFICATION_GUIDE.md`](docs/JUDGE_VERIFICATION_GUIDE.md) for the 60-second verification path, visual H-005 walkthrough, live endpoint checks, exact read-only TrueForge/FaultLine query, local reproduction steps, public-runtime limitations, and the three-minute demo script.
+
+> **Evidence boundary:** the persisted H-005 experiment confirms `$249 → $498` under controlled repeated non-idempotent execution. Harness OS does not label that as an autonomous target-agent retry unless a runtime agent trace separately proves it. Likewise, sandbox PASS, human approval and exact safe replay remain evidence-gated.
+
 ## Live judge links
 
 | Surface | URL | What it shows |
