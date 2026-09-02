@@ -1,1 +1,0 @@
-Mission Control, TrueForge architecture, and H-005 proof visuals are committed and referenced from README.md.
