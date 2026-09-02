@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: harness-os-trueforge
+    runtime: docker
+    plan: free
+    dockerfilePath: ./docker/trueforge/Dockerfile
+    dockerContext: ./docker/trueforge
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8790
+      - key: STANDALONE
+        value: "true"
+      - key: SQLITE_PATH
+        value: /tmp/trueforge.db
+
+  - type: web
+    name: harness-os-api-cloud
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port 8080
+    healthCheckPath: /health
+    envVars:
+      - key: HARNESS_OS_MODE
+        value: live
+      - key: HARNESS_OS_DB
+        value: /tmp/harness_os.db
+      - key: HARNESS_OS_CORS_ORIGINS
+        value: https://harshapriyag123.github.io
+      - key: TRUEFORGE_API_BASE_URL
+        value: https://harness-os-trueforge.onrender.com
+      - key: TRUEFORGE_AGENT_NAME
+        value: harness-os
+      - key: TRUEFORGE_REQUEST_TIMEOUT_SECONDS
+        value: "90"
+      - key: TRUEFORGE_PROBE_TIMEOUT_SECONDS
+        value: "12"
+      - key: HARNESS_CHAOS_MCP_URL
+        value: https://faultline-h005.onrender.com/mcp
+      - key: PUBLIC_REFUND_FIXTURE_URL
+        value: https://harness-os.onrender.com/health
+      - key: PUBLIC_FAULTLINE_HEALTH_URL
+        value: https://faultline-h005.onrender.com/health
+      - key: FIXTURE_BASE_URL
+        value: https://harness-os.onrender.com
+      - key: GITHUB_TARGET_REPOSITORY
+        value: harshapriyag123/harness-os
+      - key: GITHUB_DEFAULT_BRANCH
+        value: main
