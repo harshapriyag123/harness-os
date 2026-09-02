@@ -11,7 +11,7 @@ def _cors_origins():
  configured=[x.strip().rstrip('/') for x in os.getenv('HARNESS_OS_CORS_ORIGINS','').split(',') if x.strip()]
  return list(dict.fromkeys(['http://localhost:5173',*configured]))
 
-app=FastAPI(title='Harness OS API',version='1.8.0')
+app=FastAPI(title='Harness OS API',version='1.8.1')
 app.add_middleware(CORSMiddleware,allow_origins=_cors_origins(),allow_methods=['*'],allow_headers=['*'])
 
 def required(kind,item_id):
@@ -22,6 +22,8 @@ def required(kind,item_id):
 def fail(exc):
  raise HTTPException(404 if isinstance(exc,KeyError) else 409 if isinstance(exc,ValueError) else 503,detail={'code':exc.__class__.__name__.upper(),'message':str(exc).strip("'")})
 
+@app.get('/')
+def root():return {'service':'Harness OS API','status':'ok','mode':engine.MODE,'health':'/health','dashboard':'/api/v1/dashboard','operator_snapshot':'/api/v1/operator-snapshot','trueforge_status':'/api/v1/trueforge/status','public_services':'/api/v1/public-services','docs':'/docs'}
 @app.get('/health')
 def health():return {'status':'ok','mode':engine.MODE}
 @app.get('/api/v1/dashboard')
