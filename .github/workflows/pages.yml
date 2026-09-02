@@ -6,6 +6,7 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/pages.yml'
+      - 'docs/images/**'
   workflow_dispatch:
 
 permissions:
@@ -30,10 +31,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Build read-only public judge view
+      - name: Build hosted Mission Control judge console
         working-directory: frontend
         env:
           VITE_PUBLIC_READ_ONLY: 'true'
+          VITE_TRUEFORGE_PUBLIC_URL: 'https://harness-os-trueforge.onrender.com'
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
