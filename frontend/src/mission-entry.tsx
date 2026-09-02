@@ -2,13 +2,13 @@ import React from'react';
 import{createRoot}from'react-dom/client';
 import MissionControl from'./MissionControl';
 import JudgeDemoCore from'./JudgeDemoCore';
-import PublicJudgeLanding from'./PublicJudgeLanding';
+import PublicMissionControl from'./PublicMissionControl';
 
 const root=document.getElementById('mission-root');
 const publicReadOnly=import.meta.env.VITE_PUBLIC_READ_ONLY==='true';
 
 if(root)createRoot(root).render(
  <React.StrictMode>
-  {publicReadOnly?<PublicJudgeLanding/>:<><MissionControl/><JudgeDemoCore/></>}
+  {publicReadOnly?<PublicMissionControl/>:<><MissionControl/><JudgeDemoCore/></>}
  </React.StrictMode>
 );
