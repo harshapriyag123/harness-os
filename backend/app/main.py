@@ -31,7 +31,7 @@ def dashboard():return engine.dashboard()
 @app.get('/api/v1/operator-snapshot')
 def operator_snapshot(campaign_id:str|None=None,agent_id:str|None=None):return operator_control.snapshot(campaign_id,refresh_qodo=False,agent_id=agent_id)
 @app.get('/api/v1/trueforge/status')
-def trueforge_status():return operator_control.trueforge_status()
+def trueforge_status(force:bool=False):return operator_control.trueforge_status(force=force)
 @app.post('/api/v1/agents',status_code=201)
 def create_agent(body:AgentCreate):
  try:return engine.create_agent(body.model_dump())
