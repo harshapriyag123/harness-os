@@ -25,14 +25,14 @@ export default function JudgeMission(){
  const[error,setError]=useState('');
  const[lastAction,setLastAction]=useState('Ready for the judge');
 
- async function refresh(){
+ async function refresh(force=false){
   setError('');
   try{
-   const[tf,svc,a,c]=await Promise.all([api.trueforgeStatus(),api.publicServices(false),api.agents(),api.campaigns()]);
+   const[tf,svc,a,c]=await Promise.all([api.trueforgeStatus(force),api.publicServices(force),api.agents(),api.campaigns()]);
    setHealth({tf,services:svc.services||[]});setAgents(a||[]);setCampaigns(c||[]);
   }catch(e:any){setError(e.message||String(e))}
  }
- useEffect(()=>{refresh();const i=setInterval(refresh,15000);return()=>clearInterval(i)},[]);
+ useEffect(()=>{refresh(false)},[]);
 
  const target=useMemo(()=>agents.find(a=>String(a.name).toLowerCase()===TARGET.toLowerCase())||agents.find(a=>String(a.repository_url||'').includes('harshapriyag123/harness-os')),[agents]);
  const campaign=useMemo(()=>campaigns.find(c=>c.agent_id===target?.id&&ACTIVE.includes(c.status))||campaigns.find(c=>c.agent_id===target?.id),[campaigns,target?.id]);
@@ -58,7 +58,7 @@ export default function JudgeMission(){
    setCampaigns(v=>[started,...v.filter(x=>x.id!==started.id)]);
    setLastAction(`Live campaign ${started.id||SCENARIO} started`);
    setTimeout(()=>openTab('Live Run'),250);
-   setTimeout(()=>refresh(),1200);
+   setTimeout(()=>refresh(false),1200);
   }catch(e:any){setError(e.message||String(e));setLastAction('Mission launch needs attention')}
   finally{setBusy(false)}
  }
@@ -82,9 +82,9 @@ export default function JudgeMission(){
    </aside>
   </div>
   <div className="jm-runtime">
-   <button className={tfOk?'ok':'warn'} onClick={refresh}><Server/><span>TRUEFORGE</span><b>{tfOk?'CONNECTED':'CHECK'}</b></button>
-   <button className={fault?.reachable?'ok':'warn'} onClick={refresh}><TerminalSquare/><span>FAULTLINE MCP</span><b>{fault?.reachable?'CONNECTED':'CHECK'}</b></button>
-   <button className={fixture?.reachable?'ok':'warn'} onClick={refresh}><CircleDollarSign/><span>REFUND FIXTURE</span><b>{fixture?.reachable?'CONNECTED':'CHECK'}</b></button>
+   <button className={tfOk?'ok':'warn'} onClick={()=>refresh(true)}><Server/><span>TRUEFORGE</span><b>{tfOk?'CONNECTED':health.tf?.status==='RATE_LIMITED'?'RATE LIMITED':'CHECK'}</b></button>
+   <button className={fault?.reachable?'ok':'warn'} onClick={()=>refresh(true)}><TerminalSquare/><span>FAULTLINE MCP</span><b>{fault?.reachable?'CONNECTED':'CHECK'}</b></button>
+   <button className={fixture?.reachable?'ok':'warn'} onClick={()=>refresh(true)}><CircleDollarSign/><span>REFUND FIXTURE</span><b>{fixture?.reachable?'CONNECTED':'CHECK'}</b></button>
    <button className={target?'ok':'warn'} onClick={launch}><ShieldCheck/><span>DEMO TARGET</span><b>{target?'READY':'PREPARE'}</b></button>
    <div className="jm-score"><strong>{readiness}/4</strong><span>mission prerequisites</span><i><u style={{width:`${readiness/4*100}%`}}/></i></div>
   </div>
