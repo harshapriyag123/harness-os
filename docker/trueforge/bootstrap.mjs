@@ -51,8 +51,8 @@ async function request(path,{method='GET',body}={}){
 async function waitForApi(){
   const deadline=Date.now()+maxWaitMs;
   while(Date.now()<deadline){
-    try{await request('/api/v1/capabilities');return}catch{}
-    await sleep(2000);
+    try{await request('/api/v1/agents');return}catch{}
+    await sleep(5000);
   }
   throw new Error(`TrueForge API did not become ready within ${maxWaitMs}ms`);
 }
@@ -98,17 +98,16 @@ async function upsertAgent(){
   }
 }
 async function verify(){
-  const [agents,providers,mcps,capabilities]=await Promise.all([
+  const [agents,providers,mcps]=await Promise.all([
     request('/api/v1/agents'),
     request('/api/v1/settings/model-providers'),
-    request('/api/v1/settings/mcp-servers'),
-    request('/api/v1/capabilities')
+    request('/api/v1/settings/mcp-servers')
   ]);
   const agent=Array.isArray(agents)&&agents.find(a=>a?.name===agentName);
   const providerReady=Array.isArray(providers)&&providers.some(p=>p?.name===provider);
   const mcpReady=Array.isArray(mcps)&&mcps.some(m=>m?.name===mcpName);
   if(!agent||!providerReady||!mcpReady)throw new Error('bootstrap verification failed: required resources are missing');
-  log(`READY agent=${agentName} model=${provider}/${modelName} mcp=${mcpName} sandbox=${capabilities?.sandbox?.enabled===true?'enabled':'disabled'}`);
+  log(`READY agent=${agentName} model=${provider}/${modelName} mcp=${mcpName} capability_probe=deferred`);
 }
 
 async function main(){

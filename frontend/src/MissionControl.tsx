@@ -30,10 +30,10 @@ export default function MissionControl(){
   }catch(e:any){if(token===requestToken.current)setError(e.message)}
  }
  async function loadRuntime(force=false){
-  const[s,t]=await Promise.all([api.publicServices(force),api.trueforgeStatus()]);setServices(s.services||[]);setTf(t);
+  const[s,t]=await Promise.all([api.publicServices(force),api.trueforgeStatus(force)]);setServices(s.services||[]);setTf(t);
  }
  useEffect(()=>{loadCore(false,selectedId);const timer=setInterval(()=>loadCore(false,selectedId),5000);return()=>{clearInterval(timer);requestToken.current++}},[selectedId]);
- useEffect(()=>{loadRuntime(false).catch(e=>setError(e.message));const timer=setInterval(()=>loadRuntime(false).catch(()=>{}),30000);return()=>clearInterval(timer)},[]);
+ useEffect(()=>{loadRuntime(false).catch(e=>setError(e.message))},[]);
  useEffect(()=>{if(!selectedId&&agents[0]){selectedRef.current=agents[0].id;setSelectedId(agents[0].id)}},[agents,selectedId]);
  useEffect(()=>{
   if(!selectedCampaign?.id||selectedCampaign.agent_id!==selected?.id)return;

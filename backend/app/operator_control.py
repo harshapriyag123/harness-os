@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 import threading
 import time
 from typing import Any
@@ -12,6 +13,8 @@ from .integrations.trueforge import TrueForgeClient, TrueForgeError
 from .integrations.trueforge.client import DEFAULT_TRUEFORGE_BASE_URL, DEFAULT_TRUEFORGE_AGENT_NAME
 
 ACTIVE_STATUSES = ("WAITING_APPROVAL", "RUNNING", "PLANNING", "PAUSED")
+_TRUEFORGE_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "value": None}
+TRUEFORGE_STATUS_CACHE_SECONDS = 60.0
 _TRUEFORGE_STATUS_LOCK = threading.Lock()
 _TRUEFORGE_STATUS_CACHE: dict[str, Any] = {"value": None, "expires_at": 0.0}
 
